@@ -1,0 +1,64 @@
+import { useEffect } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
+import TopNavBar from "@/components/ide/top-nav-bar";
+import FileExplorer from "@/components/ide/file-explorer";
+import TabBar from "@/components/ide/tab-bar";
+import MonacoEditor from "@/components/ide/monaco-editor";
+import RightPanel from "@/components/ide/right-panel";
+import Terminal from "@/components/ide/terminal";
+import CreateFileModal from "@/components/ide/create-file-modal";
+import { useIDE } from "@/hooks/useIDE";
+
+export default function IDE() {
+  const { toast } = useToast();
+  const { isAuthenticated, isLoading } = useAuth();
+
+  // Redirect to home if not authenticated
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      toast({
+        title: "Unauthorized",
+        description: "You are logged out. Logging in again...",
+        variant: "destructive",
+      });
+      setTimeout(() => {
+        window.location.href = "/api/login";
+      }, 500);
+      return;
+    }
+  }, [isAuthenticated, isLoading, toast]);
+
+  if (isLoading || !isAuthenticated) {
+    return (
+      <div className="h-screen bg-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading Shetty IDE...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-screen flex flex-col bg-slate-900 text-gray-200 font-sans overflow-hidden">
+      <TopNavBar />
+      
+      <div className="flex-1 flex overflow-hidden">
+        <FileExplorer />
+        
+        <div className="flex-1 flex flex-col">
+          <TabBar />
+          
+          <div className="flex-1 flex">
+            <MonacoEditor />
+            <RightPanel />
+          </div>
+        </div>
+      </div>
+      
+      <Terminal />
+      <CreateFileModal />
+    </div>
+  );
+}

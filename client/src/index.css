@@ -1,0 +1,184 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(0, 0%, 100%);
+  --foreground: hsl(20, 14.3%, 4.1%);
+  --muted: hsl(60, 4.8%, 95.9%);
+  --muted-foreground: hsl(25, 5.3%, 44.7%);
+  --popover: hsl(0, 0%, 100%);
+  --popover-foreground: hsl(20, 14.3%, 4.1%);
+  --card: hsl(0, 0%, 100%);
+  --card-foreground: hsl(20, 14.3%, 4.1%);
+  --border: hsl(20, 5.9%, 90%);
+  --input: hsl(20, 5.9%, 90%);
+  --primary: hsl(207, 90%, 54%);
+  --primary-foreground: hsl(211, 100%, 99%);
+  --secondary: hsl(60, 4.8%, 95.9%);
+  --secondary-foreground: hsl(24, 9.8%, 10%);
+  --accent: hsl(60, 4.8%, 95.9%);
+  --accent-foreground: hsl(24, 9.8%, 10%);
+  --destructive: hsl(0, 84.2%, 60.2%);
+  --destructive-foreground: hsl(60, 9.1%, 97.8%);
+  --ring: hsl(20, 14.3%, 4.1%);
+  --radius: 0.5rem;
+
+  /* IDE specific colors */
+  --ide-bg: hsl(240, 10%, 3.9%);
+  --ide-sidebar: hsl(240, 8%, 15%);
+  --ide-surface: hsl(240, 6%, 18%);
+  --ide-border: hsl(240, 4%, 25%);
+  --ide-text: hsl(0, 0%, 80%);
+  --ide-text-dim: hsl(0, 0%, 60%);
+  --ide-accent: hsl(207, 90%, 54%);
+  --ide-success: hsl(142, 76%, 36%);
+  --ide-warning: hsl(48, 98%, 64%);
+  --ide-error: hsl(358, 75%, 59%);
+}
+
+.dark {
+  --background: hsl(240, 10%, 3.9%);
+  --foreground: hsl(0, 0%, 98%);
+  --muted: hsl(240, 3.7%, 15.9%);
+  --muted-foreground: hsl(240, 5%, 64.9%);
+  --popover: hsl(240, 10%, 3.9%);
+  --popover-foreground: hsl(0, 0%, 98%);
+  --card: hsl(240, 10%, 3.9%);
+  --card-foreground: hsl(0, 0%, 98%);
+  --border: hsl(240, 3.7%, 15.9%);
+  --input: hsl(240, 3.7%, 15.9%);
+  --primary: hsl(207, 90%, 54%);
+  --primary-foreground: hsl(211, 100%, 99%);
+  --secondary: hsl(240, 3.7%, 15.9%);
+  --secondary-foreground: hsl(0, 0%, 98%);
+  --accent: hsl(240, 3.7%, 15.9%);
+  --accent-foreground: hsl(0, 0%, 98%);
+  --destructive: hsl(0, 62.8%, 30.6%);
+  --destructive-foreground: hsl(0, 0%, 98%);
+  --ring: hsl(240, 4.9%, 83.9%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    overflow: hidden;
+  }
+
+  html, body, #root {
+    height: 100%;
+  }
+}
+
+@layer components {
+  /* Custom scrollbars for IDE */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  
+  .scrollbar-thumb-slate-600 {
+    scrollbar-color: hsl(215, 25%, 27%) transparent;
+  }
+
+  .scrollbar-track-slate-800 {
+    scrollbar-color: hsl(215, 25%, 27%) hsl(215, 28%, 17%);
+  }
+
+  /* Webkit scrollbars */
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: hsl(215, 28%, 17%);
+    border-radius: 4px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(215, 25%, 27%);
+    border-radius: 4px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: hsl(215, 25%, 32%);
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-corner {
+    background: hsl(215, 28%, 17%);
+  }
+
+  /* Monaco Editor container */
+  .monaco-editor {
+    font-family: 'JetBrains Mono', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
+  }
+
+  .monaco-editor .monaco-editor-background {
+    background-color: hsl(240, 10%, 3.9%) !important;
+  }
+
+  .monaco-editor .margin {
+    background-color: hsl(240, 10%, 3.9%) !important;
+  }
+
+  /* File tree animations */
+  .file-item {
+    transition: all 0.15s ease;
+  }
+
+  .file-item:hover {
+    background-color: hsl(215, 25%, 20%);
+  }
+
+  .file-item.active {
+    background-color: hsl(215, 25%, 23%);
+  }
+
+  /* Tab styling */
+  .tab {
+    transition: all 0.15s ease;
+  }
+
+  .tab:hover:not([data-state="active"]) {
+    background-color: hsl(215, 25%, 20%);
+  }
+
+  /* Terminal cursor animation */
+  @keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+  
+  .animate-pulse {
+    animation: blink 1s infinite;
+  }
+
+  /* Loading spinner */
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  
+  .animate-spin {
+    animation: spin 1s linear infinite;
+  }
+
+  /* Bounce animation for AI typing indicator */
+  @keyframes bounce {
+    0%, 80%, 100% {
+      transform: scale(0);
+    } 
+    40% {
+      transform: scale(1);
+    }
+  }
+  
+  .animate-bounce {
+    animation: bounce 1.4s infinite ease-in-out both;
+  }
+}
