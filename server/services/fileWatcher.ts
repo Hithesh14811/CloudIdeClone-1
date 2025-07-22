@@ -29,14 +29,26 @@ export class FileWatcher {
 
     // Watch the directory for changes
     this.watcher = chokidar.watch(this.watchPath, {
-      ignored: /(^|[\/\\])\../, // ignore dotfiles
+      ignored: [
+        /(^|[\/\\])\../, // ignore dotfiles
+        '**/node_modules/**', // ignore node_modules
+        '**/\.git/**', // ignore git
+        '**/*~', // ignore temp files
+        '**/tmp/**', // ignore tmp directories
+        '**/*.tmp', // ignore tmp files
+        '**/dist/**', // ignore build directories
+        '**/build/**' // ignore build directories
+      ],
       persistent: true,
       ignoreInitial: false,
-      depth: undefined,
+      depth: 10, // Limit depth to avoid infinite recursion
       awaitWriteFinish: {
-        stabilityThreshold: 100,
-        pollInterval: 50
-      }
+        stabilityThreshold: 200,
+        pollInterval: 100
+      },
+      followSymlinks: false, // Don't follow symlinks
+      ignorePermissionErrors: true, // Ignore permission errors
+      atomic: true // Treat moves as atomic
     });
 
     // Send initial file tree
@@ -82,7 +94,12 @@ export class FileWatcher {
 
   private buildFileTree(dir: string, relativePath: string = ''): FileTreeNode | null {
     try {
-      const stats = fs.statSync(dir);
+      // Check if directory exists and is accessible
+      if (!fs.existsSync(dir)) {
+        return null;
+      }
+      
+      const stats = fs.lstatSync(dir);
       if (!stats.isDirectory()) return null;
 
       const name = path.basename(dir);
@@ -93,20 +110,52 @@ export class FileWatcher {
         children: []
       };
 
-      const items = fs.readdirSync(dir);
+      let items: string[] = [];
+      try {
+        items = fs.readdirSync(dir);
+      } catch (error) {
+        console.error(`Error reading directory ${dir}:`, error);
+        return tree; // Return empty folder instead of null
+      }
       
-      // Separate files and folders
+      // Filter out problematic items (node_modules, .git, tmp files, etc.)
+      const filteredItems = items.filter(item => {
+        // Skip hidden files and directories
+        if (item.startsWith('.')) return false;
+        
+        // Skip node_modules to avoid symlink issues
+        if (item === 'node_modules') return false;
+        
+        // Skip temporary files
+        if (item.startsWith('tmp') || item.includes('~')) return false;
+        
+        return true;
+      });
+      
+      // Separate files and folders with better error handling
       const folders: string[] = [];
       const files: string[] = [];
 
-      for (const item of items) {
+      for (const item of filteredItems) {
         const itemPath = path.join(dir, item);
-        const stat = fs.statSync(itemPath);
-        
-        if (stat.isDirectory()) {
-          folders.push(item);
-        } else {
-          files.push(item);
+        try {
+          // Use lstat to handle symlinks properly
+          if (!fs.existsSync(itemPath)) continue;
+          
+          const stat = fs.lstatSync(itemPath);
+          
+          // Skip symlinks to avoid broken link errors
+          if (stat.isSymbolicLink()) continue;
+          
+          if (stat.isDirectory()) {
+            folders.push(item);
+          } else if (stat.isFile()) {
+            files.push(item);
+          }
+        } catch (statError) {
+          // Skip items that can't be accessed
+          console.error(`Error accessing ${itemPath}:`, statError);
+          continue;
         }
       }
 

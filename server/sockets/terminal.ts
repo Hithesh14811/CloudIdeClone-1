@@ -2,7 +2,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import * as pty from 'node-pty';
 import { storage } from '../storage';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { platform } from 'os';
 import { execSync } from 'child_process';
@@ -38,9 +38,17 @@ export function setupTerminalSocket(io: SocketIOServer) {
         // Get project files and write them to filesystem
         const files = await storage.getProjectFiles(parseInt(projectId));
         for (const file of files) {
-          if (!file.isFolder && file.content) {
-            const filePath = join(workingDir, file.name);
-            writeFileSync(filePath, file.content);
+          if (!file.isFolder && file.content !== null) {
+            // Use the file's path property for proper directory structure
+            const filePath = join(workingDir, file.path || file.name);
+            const fileDir = join(workingDir, dirname(file.path || file.name));
+            
+            // Create directory structure if it doesn't exist
+            if (!existsSync(fileDir)) {
+              mkdirSync(fileDir, { recursive: true });
+            }
+            
+            writeFileSync(filePath, file.content || '');
           }
         }
         
