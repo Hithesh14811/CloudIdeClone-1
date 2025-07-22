@@ -93,6 +93,24 @@ body {
     }
   });
 
+  app.delete("/api/projects/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const projectId = parseInt(req.params.id);
+      
+      const project = await storage.getProject(projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      await storage.deleteProject(projectId);
+      res.json({ message: "Project deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting project:", error);
+      res.status(500).json({ message: "Failed to delete project" });
+    }
+  });
+
   app.get("/api/projects/:id", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;

@@ -10,9 +10,14 @@ import Terminal from "@/components/ide/terminal";
 import CreateFileModal from "@/components/ide/create-file-modal";
 import { useIDE } from "@/hooks/useIDE";
 
-export default function IDE() {
+interface IDEProps {
+  projectId: string;
+}
+
+export default function IDE({ projectId }: IDEProps) {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
+  const ideHook = useIDE(projectId);
 
   // Redirect to home if not authenticated
   useEffect(() => {

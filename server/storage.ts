@@ -22,6 +22,7 @@ interface IStorage {
   getUserProjects(userId: string): Promise<Project[]>;
   getProject(projectId: number): Promise<Project | undefined>;
   createProject(project: InsertProject): Promise<Project>;
+  deleteProject(projectId: number): Promise<void>;
   
   // File methods
   getProjectFiles(projectId: number): Promise<File[]>;
@@ -111,6 +112,13 @@ export class DatabaseStorage implements IStorage {
 
   async deleteFile(fileId: number): Promise<void> {
     await db.delete(files).where(eq(files.id, fileId));
+  }
+
+  async deleteProject(projectId: number): Promise<void> {
+    // Delete all files in the project first (cascading delete should handle this, but being explicit)
+    await db.delete(files).where(eq(files.projectId, projectId));
+    // Delete the project
+    await db.delete(projects).where(eq(projects.id, projectId));
   }
 }
 

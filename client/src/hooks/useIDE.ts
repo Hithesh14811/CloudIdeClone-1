@@ -9,7 +9,7 @@ interface CreateModalState {
   type: "file" | "folder";
 }
 
-export function useIDE() {
+export function useIDE(projectId?: string) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
@@ -20,15 +20,16 @@ export function useIDE() {
     type: "file" 
   });
 
-  // Fetch user projects
-  const { data: projects, isLoading: projectsLoading } = useQuery({
-    queryKey: ["/api/projects"],
+  // Fetch specific project if projectId is provided
+  const { data: project } = useQuery({
+    queryKey: ["/api/projects", projectId],
+    enabled: !!projectId,
   });
 
-  // Auto-select first project if available
+  // Set current project when project data is loaded
   useState(() => {
-    if (projects && Array.isArray(projects) && projects.length > 0 && !currentProject) {
-      setCurrentProject(projects[0]);
+    if (project) {
+      setCurrentProject(project as Project);
     }
   });
 
@@ -120,8 +121,6 @@ export function useIDE() {
     // State
     currentProject,
     setCurrentProject,
-    projects,
-    projectsLoading,
     openTabs,
     currentFile,
     showCreateModal,
