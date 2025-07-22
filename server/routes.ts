@@ -4,6 +4,8 @@ import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { insertProjectSchema, insertFileSchema } from "@shared/schema";
 import { z } from "zod";
+import { processAIRequest } from "./services/aiAgent";
+import { updatePreviewFiles } from "./services/preview";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -231,101 +233,67 @@ body {
       const { message, projectId } = req.body;
       const userId = (req as any).user.claims.sub;
       
-      // Get project context if provided
-      let contextInfo = "";
-      if (projectId) {
-        const project = await storage.getProject(parseInt(projectId));
-        if (project && project.userId === userId) {
-          const files = await storage.getProjectFiles(parseInt(projectId));
-          contextInfo = `\nCurrent project: ${project.name}\nFiles: ${files.map(f => f.name).join(', ')}`;
-        }
+      if (!projectId) {
+        return res.status(400).json({ message: "Project ID is required" });
       }
       
-      // Generate contextual responses based on message content
-      let response = "";
-      const lowerMessage = message.toLowerCase();
+      // Use the AI service to process the request and potentially modify files
+      const aiResponse = await processAIRequest(message, parseInt(projectId), userId);
       
-      if (lowerMessage.includes('help') || lowerMessage.includes('hello') || lowerMessage.includes('hi')) {
-        response = `Hello! I'm your coding assistant for Shetty IDE. I can help you:
-        
-• Build web applications with HTML, CSS, and JavaScript
-• Debug your code and fix errors
-• Create new files and folders
-• Suggest improvements and best practices
-• Answer coding questions
-
-What would you like to work on today?${contextInfo}`;
-      } else if (lowerMessage.includes('create') && (lowerMessage.includes('file') || lowerMessage.includes('component'))) {
-        response = `I can help you create files! Here are some options:
-
-• HTML file: Create index.html with basic structure
-• JavaScript file: Create script.js with starter code
-• CSS file: Create styles.css with basic styling
-• React component: Create a reusable component
-
-Would you like me to create a specific type of file for your project?${contextInfo}`;
-      } else if (lowerMessage.includes('html') || lowerMessage.includes('web')) {
-        response = `Great! I can help with HTML and web development. Here's what I can assist with:
-
-• Creating semantic HTML structure
-• Adding forms, navigation, and content sections
-• Implementing responsive design
-• Connecting CSS and JavaScript files
-• SEO optimization tips
-
-What specific HTML feature would you like to implement?${contextInfo}`;
-      } else if (lowerMessage.includes('javascript') || lowerMessage.includes('js')) {
-        response = `JavaScript is perfect for adding interactivity! I can help with:
-
-• DOM manipulation and event handling
-• Async/await and API calls
-• Functions and data structures
-• Modern ES6+ features
-• Debugging common issues
-
-What JavaScript functionality are you looking to add?${contextInfo}`;
-      } else if (lowerMessage.includes('css') || lowerMessage.includes('style')) {
-        response = `CSS styling can make your project look amazing! I can help with:
-
-• Layout techniques (Flexbox, Grid)
-• Responsive design and media queries
-• Animations and transitions
-• Color schemes and typography
-• Component styling patterns
-
-What styling challenges are you facing?${contextInfo}`;
-      } else if (lowerMessage.includes('error') || lowerMessage.includes('debug') || lowerMessage.includes('fix')) {
-        response = `I'm here to help debug! To better assist you:
-
-• Share the error message if you have one
-• Tell me what you expected vs what happened  
-• Let me know which file has the issue
-
-I can help identify common issues like:
-• Syntax errors and typos
-• Missing imports or references
-• Logic problems
-• Browser compatibility issues${contextInfo}`;
-      } else {
-        response = `I understand you're asking about: "${message}"
-
-While I'm still learning, I can help with web development fundamentals:
-• HTML structure and semantics
-• CSS styling and layout
-• JavaScript functionality
-• File organization
-• Best practices
-
-Could you be more specific about what you'd like to build or fix?${contextInfo}`;
+      // If files were modified, trigger preview update
+      if (aiResponse.actions && aiResponse.actions.length > 0) {
+        // Update preview if there's an active session
+        updatePreviewFiles(projectId, userId).catch(console.error);
       }
       
       res.json({
-        message: response,
+        message: aiResponse.message,
+        actions: aiResponse.actions,
+        success: aiResponse.success,
         timestamp: new Date().toISOString()
       });
     } catch (error) {
       console.error("Error in AI chat:", error);
       res.status(500).json({ message: "Failed to process AI request" });
+    }
+  });
+
+  // Project execution routes
+  app.post("/api/projects/:id/run", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const projectId = parseInt(req.params.id);
+      
+      // Verify project ownership
+      const project = await storage.getProject(projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      // Get project files
+      const files = await storage.getProjectFiles(projectId);
+      
+      // Determine project type
+      const hasPackageJson = files.some(f => f.name === 'package.json');
+      const hasIndexHtml = files.some(f => f.name === 'index.html');
+      const hasPythonFiles = files.some(f => f.name.endsWith('.py'));
+      
+      let projectType: 'html' | 'node' | 'python' = 'html';
+      if (hasPackageJson) {
+        projectType = 'node';
+      } else if (hasPythonFiles && !hasIndexHtml) {
+        projectType = 'python';
+      }
+
+      res.json({
+        message: "Project execution started",
+        projectType,
+        files: files.length,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error("Error running project:", error);
+      res.status(500).json({ message: "Failed to run project" });
     }
   });
 

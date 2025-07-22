@@ -5,7 +5,11 @@ import { Eye, Bot } from "lucide-react";
 import PreviewPanel from "./preview-panel";
 import AIAssistant from "./ai-assistant";
 
-export default function RightPanel() {
+interface RightPanelProps {
+  projectId?: string;
+}
+
+export default function RightPanel({ projectId }: RightPanelProps) {
   return (
     <div className="w-96 bg-slate-800 border-l border-slate-700 flex flex-col">
       <Tabs defaultValue="preview" className="h-full">
@@ -27,11 +31,11 @@ export default function RightPanel() {
         </TabsList>
 
         <TabsContent value="preview" className="flex-1 mt-0">
-          <PreviewPanel />
+          <PreviewPanel projectId={projectId} />
         </TabsContent>
 
         <TabsContent value="assistant" className="flex-1 mt-0">
-          <AIAssistant />
+          <AIAssistant projectId={projectId} />
         </TabsContent>
       </Tabs>
     </div>

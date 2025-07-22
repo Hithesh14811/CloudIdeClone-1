@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
 import { apiRequest } from "@/lib/queryClient";
@@ -16,8 +16,13 @@ interface Message {
   timestamp: Date;
 }
 
-export default function AIAssistant() {
+interface AIAssistantProps {
+  projectId?: string;
+}
+
+export default function AIAssistant({ projectId }: AIAssistantProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
@@ -30,9 +35,12 @@ export default function AIAssistant() {
 
   const sendMessageMutation = useMutation({
     mutationFn: async (message: string) => {
+      if (!projectId) {
+        throw new Error("No project selected");
+      }
       return await apiRequest("POST", "/api/ai/chat", { 
         message, 
-        projectId: 1 // Mock project ID
+        projectId: parseInt(projectId)
       });
     },
     onSuccess: (data: any) => {
@@ -43,6 +51,17 @@ export default function AIAssistant() {
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, aiMessage]);
+      
+      // If AI performed actions (created/modified files), refresh the file tree
+      if (data.actions && data.actions.length > 0) {
+        // Invalidate project files to refresh the file tree
+        queryClient.invalidateQueries({ queryKey: ['project-files', parseInt(projectId)] });
+        
+        toast({
+          title: "Files Updated",
+          description: `AI modified ${data.actions.length} file(s) in your project`,
+        });
+      }
     },
     onError: (error) => {
       toast({
@@ -55,6 +74,15 @@ export default function AIAssistant() {
 
   const handleSendMessage = () => {
     if (!inputValue.trim()) return;
+    
+    if (!projectId) {
+      toast({
+        title: "Error",
+        description: "No project selected",
+        variant: "destructive",
+      });
+      return;
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),

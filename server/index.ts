@@ -1,6 +1,9 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { Server as SocketIOServer } from 'socket.io';
+import { setupTerminalSocket } from './sockets/terminal';
+import { setupPreviewSocket } from './sockets/preview';
 
 const app = express();
 app.use(express.json());
@@ -38,6 +41,19 @@ app.use((req, res, next) => {
 
 (async () => {
   const server = await registerRoutes(app);
+  
+  // Setup Socket.IO
+  const io = new SocketIOServer(server, {
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"]
+    },
+    transports: ['websocket', 'polling']
+  });
+  
+  // Setup socket handlers
+  setupTerminalSocket(io);
+  setupPreviewSocket(io);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

@@ -1,19 +1,24 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Code, Play, Bot, Menu, Circle } from "lucide-react";
+import { Code, Play, Bot, Menu, Circle, Square } from "lucide-react";
 
 interface TopNavBarProps {
   projectName?: string;
+  projectId?: string;
 }
 
-export default function TopNavBar({ projectName }: TopNavBarProps) {
+export default function TopNavBar({ projectName, projectId }: TopNavBarProps) {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
+  const [isRunning, setIsRunning] = useState(false);
 
   const handleSave = async () => {
     setSaveStatus("saving");
@@ -21,9 +26,39 @@ export default function TopNavBar({ projectName }: TopNavBarProps) {
     setTimeout(() => setSaveStatus("saved"), 1000);
   };
 
+  const runProjectMutation = useMutation({
+    mutationFn: async () => {
+      if (!projectId) throw new Error("No project selected");
+      return await apiRequest("POST", `/api/projects/${projectId}/run`);
+    },
+    onSuccess: (data: any) => {
+      setIsRunning(true);
+      toast({
+        title: "Project Started",
+        description: `Running ${data.projectType} project with ${data.files} files`,
+      });
+      // Auto-stop after 30 seconds for demo
+      setTimeout(() => setIsRunning(false), 30000);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Run Failed",
+        description: error.message || "Failed to run project",
+        variant: "destructive",
+      });
+    }
+  });
+
   const handleRun = () => {
-    // Mock run functionality
-    console.log('Running project...');
+    if (isRunning) {
+      setIsRunning(false);
+      toast({
+        title: "Project Stopped",
+        description: "Project execution stopped",
+      });
+    } else {
+      runProjectMutation.mutate();
+    }
   };
 
   const getUserInitials = () => {
@@ -76,11 +111,30 @@ export default function TopNavBar({ projectName }: TopNavBarProps) {
         
         <Button 
           onClick={handleRun}
-          className="bg-green-600 hover:bg-green-700 text-black font-medium"
+          disabled={runProjectMutation.isPending}
+          className={`${
+            isRunning 
+              ? "bg-red-600 hover:bg-red-700 text-white" 
+              : "bg-green-600 hover:bg-green-700 text-white"
+          } font-medium`}
           size="sm"
         >
-          <Play className="w-4 h-4 mr-1" />
-          Run
+          {runProjectMutation.isPending ? (
+            <>
+              <div className="w-4 h-4 mr-1 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              Starting...
+            </>
+          ) : isRunning ? (
+            <>
+              <Square className="w-4 h-4 mr-1" />
+              Stop
+            </>
+          ) : (
+            <>
+              <Play className="w-4 h-4 mr-1" />
+              Run
+            </>
+          )}
         </Button>
         
         <Button 

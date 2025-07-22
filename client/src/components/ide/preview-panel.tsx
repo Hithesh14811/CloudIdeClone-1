@@ -1,78 +1,75 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { usePreview } from "@/hooks/usePreview";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, ExternalLink } from "lucide-react";
+import { RefreshCw, ExternalLink, Play } from "lucide-react";
 
-export default function PreviewPanel() {
-  const [previewContent, setPreviewContent] = useState<string>("");
+interface PreviewPanelProps {
+  projectId?: string;
+}
+
+export default function PreviewPanel({ projectId }: PreviewPanelProps) {
+  const { user } = useAuth();
+  const { previewUrl, isLoading, isReady, startPreview, stopPreview, refreshPreview } = usePreview();
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Generate mock preview content
   useEffect(() => {
-    const htmlContent = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Preview</title>
-    <style>
-      body { 
-        font-family: system-ui; 
-        padding: 2rem; 
-        background: #1e293b; 
-        color: white;
-        margin: 0;
-      }
-      .container { 
-        text-align: center; 
-        margin-top: 4rem; 
-      }
-      h1 { 
-        color: #3b82f6; 
-        margin-bottom: 1rem; 
-      }
-      p { 
-        color: #94a3b8; 
-        line-height: 1.6; 
-      }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Live Preview</h1>
-        <p>Your project preview will appear here.</p>
-        <p>Create HTML files and they will be rendered in this panel.</p>
-    </div>
-</body>
-</html>`;
-    
-    setPreviewContent(htmlContent);
-  }, [refreshKey]);
+    // Start preview when component mounts and project is available
+    if (projectId && user && !isReady && !isLoading) {
+      startPreview(projectId, user.id);
+    }
+  }, [projectId, user, isReady, isLoading, startPreview]);
 
   const handleRefresh = () => {
+    if (isReady) {
+      refreshPreview();
+    } else if (projectId && user) {
+      startPreview(projectId, user.id);
+    }
     setRefreshKey(prev => prev + 1);
   };
 
   const handleOpenInNewTab = () => {
-    const newWindow = window.open();
-    if (newWindow) {
-      newWindow.document.write(previewContent);
-      newWindow.document.close();
+    if (previewUrl) {
+      window.open(previewUrl, '_blank');
+    }
+  };
+
+  const handleStartPreview = () => {
+    if (projectId && user) {
+      startPreview(projectId, user.id);
     }
   };
 
   return (
     <div className="w-80 border-l border-slate-700 bg-slate-800 flex flex-col">
       <div className="p-3 border-b border-slate-700 flex items-center justify-between">
-        <h3 className="text-sm font-medium text-gray-200">Preview</h3>
+        <div className="flex items-center space-x-2">
+          <h3 className="text-sm font-medium text-gray-200">Preview</h3>
+          <div className={`w-2 h-2 rounded-full ${isReady ? 'bg-green-400' : isLoading ? 'bg-yellow-400' : 'bg-red-400'}`} 
+               title={isReady ? 'Preview Ready' : isLoading ? 'Starting Preview' : 'Preview Stopped'} />
+        </div>
         <div className="flex items-center space-x-1">
+          {!isReady && !isLoading && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 text-gray-400 hover:text-gray-200"
+              onClick={handleStartPreview}
+              title="Start Preview"
+            >
+              <Play className="w-3 h-3" />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
             className="h-6 w-6 p-0 text-gray-400 hover:text-gray-200"
             onClick={handleRefresh}
             title="Refresh Preview"
+            disabled={isLoading}
           >
-            <RefreshCw className="w-3 h-3" />
+            <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>
           <Button
             variant="ghost"
@@ -80,6 +77,7 @@ export default function PreviewPanel() {
             className="h-6 w-6 p-0 text-gray-400 hover:text-gray-200"
             onClick={handleOpenInNewTab}
             title="Open in New Tab"
+            disabled={!previewUrl}
           >
             <ExternalLink className="w-3 h-3" />
           </Button>
@@ -87,12 +85,41 @@ export default function PreviewPanel() {
       </div>
       
       <div className="flex-1 bg-white">
-        <iframe
-          srcDoc={previewContent}
-          className="w-full h-full border-none"
-          title="Preview"
-          sandbox="allow-scripts allow-same-origin"
-        />
+        {previewUrl ? (
+          <iframe
+            src={previewUrl + '?v=' + refreshKey}
+            className="w-full h-full border-none"
+            title="Live Preview"
+            sandbox="allow-scripts allow-same-origin allow-forms"
+          />
+        ) : isLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center text-gray-600">
+              <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p>Starting preview server...</p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center text-gray-600">
+              <div className="mb-4">
+                <Play className="w-16 h-16 mx-auto text-gray-400" />
+              </div>
+              <h3 className="text-lg font-medium text-gray-700 mb-2">Preview Not Started</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Click the play button to start live preview of your project
+              </p>
+              <Button
+                onClick={handleStartPreview}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                disabled={!projectId}
+              >
+                <Play className="w-4 h-4 mr-2" />
+                Start Preview
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

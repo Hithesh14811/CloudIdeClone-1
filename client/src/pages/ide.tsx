@@ -102,7 +102,7 @@ export default function IDE({ projectId }: IDEProps) {
 
   return (
     <div className="h-screen flex flex-col bg-slate-900 text-gray-200 font-sans overflow-hidden">
-      <TopNavBar projectName={project?.name} />
+      <TopNavBar projectName={project?.name} projectId={projectId} />
       
       <div className="flex-1 flex overflow-hidden">
         <FileTree 
@@ -125,10 +125,10 @@ export default function IDE({ projectId }: IDEProps) {
                 file={activeFile}
                 projectId={parseInt(projectId)}
               />
-              <Terminal />
+              <Terminal projectId={projectId} />
             </div>
             
-            <RightPanel />
+            <RightPanel projectId={projectId} />
           </div>
         </div>
       </div>

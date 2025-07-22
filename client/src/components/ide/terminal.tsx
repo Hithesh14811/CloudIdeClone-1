@@ -1,15 +1,18 @@
 import { useState, useEffect, useRef } from "react";
-
+import { useAuth } from "@/hooks/useAuth";
+import { useTerminal } from "@/hooks/useTerminal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, Minus, Maximize2 } from "lucide-react";
+import { Plus, Trash2, Minus, Maximize2, Play } from "lucide-react";
 
-export default function Terminal() {
+interface TerminalProps {
+  projectId?: string;
+}
+
+export default function Terminal({ projectId }: TerminalProps) {
+  const { user } = useAuth();
+  const { output, isConnected, isReady, sendCommand, startTerminal, stopTerminal, clearTerminal } = useTerminal();
   const [isMinimized, setIsMinimized] = useState(false);
-  const [terminalOutput, setTerminalOutput] = useState<string[]>([
-    "Welcome to Shetty Terminal",
-    `Type 'help' for available commands`,
-  ]);
   const [currentCommand, setCurrentCommand] = useState("");
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -21,14 +24,26 @@ export default function Terminal() {
     if (terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
-  }, [terminalOutput]);
+  }, [output]);
+
+  useEffect(() => {
+    // Start terminal session when component mounts
+    if (projectId && user && !isConnected) {
+      startTerminal(projectId, user.id);
+    }
+  }, [projectId, user, isConnected, startTerminal]);
 
   const handleClearTerminal = () => {
-    setTerminalOutput(["Terminal cleared"]);
+    clearTerminal();
   };
 
   const handleNewTerminal = () => {
-    setTerminalOutput(["Welcome to Shetty Terminal", `Type 'help' for available commands`]);
+    if (projectId && user) {
+      stopTerminal();
+      setTimeout(() => {
+        startTerminal(projectId, user.id);
+      }, 1000);
+    }
   };
 
   const executeCommand = (command: string) => {
@@ -39,68 +54,9 @@ export default function Terminal() {
     setCommandHistory(prev => [...prev, trimmedCommand]);
     setHistoryIndex(-1);
     
-    // Add command to output
-    setTerminalOutput(prev => [...prev, `$ ${trimmedCommand}`]);
-
-    // Handle different commands
-    switch (trimmedCommand.toLowerCase()) {
-      case 'help':
-        setTerminalOutput(prev => [...prev, 
-          "Available commands:",
-          "  help       - Show this help message",
-          "  clear      - Clear the terminal",
-          "  ls         - List files in current project",
-          "  pwd        - Show current directory",
-          "  whoami     - Show current user",
-          "  date       - Show current date and time",
-          "  echo <msg> - Echo a message",
-          "  node -v    - Show Node.js version",
-          "  npm -v     - Show npm version",
-        ]);
-        break;
-      
-      case 'clear':
-        setTerminalOutput(["Welcome to Shetty Terminal", `Type 'help' for available commands`]);
-        return;
-        
-      case 'ls':
-        // This would ideally fetch actual project files
-        setTerminalOutput(prev => [...prev, 
-          "index.html",
-          "script.js", 
-          "style.css",
-          "package.json"
-        ]);
-        break;
-        
-      case 'pwd':
-        setTerminalOutput(prev => [...prev, `/home/user/projects/${currentProject?.name || 'untitled'}`]);
-        break;
-        
-      case 'whoami':
-        setTerminalOutput(prev => [...prev, "shetty-user"]);
-        break;
-        
-      case 'date':
-        setTerminalOutput(prev => [...prev, new Date().toLocaleString()]);
-        break;
-        
-      case 'node -v':
-        setTerminalOutput(prev => [...prev, "v18.17.0"]);
-        break;
-        
-      case 'npm -v':
-        setTerminalOutput(prev => [...prev, "9.6.7"]);
-        break;
-        
-      default:
-        if (trimmedCommand.startsWith('echo ')) {
-          const message = trimmedCommand.substring(5);
-          setTerminalOutput(prev => [...prev, message]);
-        } else {
-          setTerminalOutput(prev => [...prev, `Command not found: ${trimmedCommand}. Type 'help' for available commands.`]);
-        }
-        break;
+    // Send command to real terminal
+    if (isReady) {
+      sendCommand(trimmedCommand);
     }
   };
 
@@ -143,7 +99,8 @@ export default function Terminal() {
       <div className="bg-slate-800 border-b border-slate-700 px-4 py-2 flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <h3 className="text-sm font-medium text-gray-200">TERMINAL</h3>
-          <div className="flex space-x-1">
+          <div className="flex items-center space-x-1">
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`} title={isConnected ? 'Connected' : 'Disconnected'} />
             <Button
               variant="ghost"
               size="sm"
@@ -189,7 +146,7 @@ export default function Terminal() {
             className="flex-1 font-mono text-sm overflow-y-auto scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-800 p-4"
           >
             <div className="space-y-1">
-              {terminalOutput.map((line, index) => (
+              {output.map((line, index) => (
                 <div key={index} className={`${
                   line.startsWith('$') ? 'text-gray-400' :
                   line.startsWith('✓') ? 'text-green-400' :
@@ -200,6 +157,11 @@ export default function Terminal() {
                   {line}
                 </div>
               ))}
+              {!isReady && isConnected && (
+                <div className="text-yellow-400">
+                  Connecting to terminal...
+                </div>
+              )}
             </div>
           </div>
           
@@ -213,8 +175,9 @@ export default function Terminal() {
                 onChange={(e) => setCurrentCommand(e.target.value)}
                 onKeyDown={handleKeyDown}
                 className="flex-1 bg-transparent border-none text-gray-200 font-mono text-sm focus:ring-0 p-0"
-                placeholder="Enter command..."
+                placeholder={isReady ? "Enter command..." : "Terminal not ready..."}
                 autoComplete="off"
+                disabled={!isReady}
               />
             </form>
           </div>
