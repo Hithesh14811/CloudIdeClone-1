@@ -93,7 +93,9 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
+  const [isUserCreating, setIsUserCreating] = useState(false);
   const socketRef = useRef<Socket | null>(null);
+  const autoRefreshRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch files for the project
   const { data: files = [], isLoading } = useQuery<FileNode[]>({
@@ -152,6 +154,32 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     };
   }, [projectId, queryClient]);
 
+  // Set up automatic refresh every 2 seconds (paused during user operations)
+  useEffect(() => {
+    const startAutoRefresh = () => {
+      if (autoRefreshRef.current) {
+        clearInterval(autoRefreshRef.current);
+      }
+
+      autoRefreshRef.current = setInterval(() => {
+        // Don't refresh if user is actively creating files or in select mode
+        if (!isUserCreating && !selectMode && !creatingItem.show) {
+          queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+        }
+      }, 2000); // Refresh every 2 seconds
+    };
+
+    if (projectId) {
+      startAutoRefresh();
+    }
+
+    return () => {
+      if (autoRefreshRef.current) {
+        clearInterval(autoRefreshRef.current);
+      }
+    };
+  }, [projectId, isUserCreating, selectMode, creatingItem.show, queryClient]);
+
   // Manual refresh function
   const handleManualRefresh = () => {
     setIsRefreshing(true);
@@ -195,9 +223,11 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
       setCreatingItem({ type: 'file', show: false });
       setNewItemName('');
+      setIsUserCreating(false); // Stop blocking auto-refresh
       toast({ title: 'Success', description: 'Item created successfully' });
     },
     onError: (error: any) => {
+      setIsUserCreating(false); // Stop blocking auto-refresh even on error
       toast({ 
         title: 'Error', 
         description: error.message || 'Failed to create item',
@@ -382,6 +412,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   const handleCreateItem = (type: 'file' | 'folder', parentId?: number) => {
     setCreatingItem({ type, parentId, show: true });
     setNewItemName('');
+    setIsUserCreating(true); // Block auto-refresh during file creation
     
     // Expand parent folder if needed
     if (parentId) {
@@ -409,6 +440,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   const handleCancelCreate = () => {
     setCreatingItem({ type: 'file', show: false });
     setNewItemName('');
+    setIsUserCreating(false); // Stop blocking auto-refresh when cancelled
   };
 
   const renderNode = (node: FileNode, depth: number = 0): React.ReactNode => {
