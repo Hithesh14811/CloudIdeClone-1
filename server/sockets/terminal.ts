@@ -84,7 +84,7 @@ export function setupTerminalSocket(io: SocketIOServer) {
             env: {
               ...process.env,
               TERM: 'xterm-256color',
-              PATH: process.env.PATH,
+              PATH: process.env.PATH + ':/home/runner/workspace/node_modules/.bin',
               HOME: workingDir,
               SHELL: shell,
               USER: 'user',
