@@ -42,7 +42,7 @@ export default function TopNavBar({ projectName }: TopNavBarProps) {
             <Code className="w-4 h-4 text-white" />
           </div>
           <span className="font-semibold text-gray-200">
-            {projectName || currentProject?.name || "Shetty"}
+            {projectName || "Shetty"}
           </span>
         </div>
         
