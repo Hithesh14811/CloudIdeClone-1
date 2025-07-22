@@ -15,11 +15,13 @@ export class FileWatcher {
   private socket: Socket;
   private watchPath: string;
   private projectId: string;
+  private io?: any; // Socket.IO server instance
 
-  constructor(socket: Socket, watchPath: string, projectId: string) {
+  constructor(socket: Socket, watchPath: string, projectId: string, io?: any) {
     this.socket = socket;
     this.watchPath = watchPath;
     this.projectId = projectId;
+    this.io = io;
   }
 
   start() {
@@ -110,10 +112,19 @@ export class FileWatcher {
     try {
       const tree = this.buildFileTree(this.watchPath);
       if (tree) {
-        this.socket.emit('file-tree-update', {
+        const updateData = {
           projectId: this.projectId,
           tree: tree.children || []
-        });
+        };
+        
+        // Emit to all clients if io is available, otherwise fall back to single socket
+        if (this.io) {
+          this.io.emit('file-tree-update', updateData);
+          this.io.emit('files:changed', { projectId: parseInt(this.projectId) });
+        } else {
+          this.socket.emit('file-tree-update', updateData);
+          this.socket.emit('files:changed', { projectId: parseInt(this.projectId) });
+        }
       }
     } catch (error) {
       console.error('Error building file tree:', error);

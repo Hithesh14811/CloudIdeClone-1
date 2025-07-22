@@ -135,6 +135,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     const handleFileChanges = (data: any) => {
       console.log('Files changed via socket:', data);
       if (data.projectId === projectId) {
+        console.log('Invalidating file tree cache and refetching for project:', projectId);
         // Invalidate and refetch immediately
         queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
       }
