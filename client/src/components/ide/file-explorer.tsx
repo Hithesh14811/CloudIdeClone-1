@@ -21,13 +21,14 @@ export default function FileExplorer({ projectId }: FileExplorerProps) {
   const [creatingItem, setCreatingItem] = useState<{ type: 'file' | 'folder'; parentId?: number } | null>(null);
   const [newItemName, setNewItemName] = useState("");
   
-  // Debug logging
-  console.log('FileExplorer: projectId:', projectId, 'currentProject:', currentProject);
-  
   const { data: files, isLoading } = useQuery<FileType[]>({
     queryKey: ["/api/projects", currentProject?.id, "files"],
     enabled: !!currentProject,
   });
+
+  // Debug logging
+  console.log('FileExplorer: projectId:', projectId, 'currentProject:', currentProject);
+  console.log('FileExplorer: files data:', files);
 
   const createFileMutation = useMutation({
     mutationFn: async (fileData: { name: string; isFolder: boolean; parentId?: number }) => {
