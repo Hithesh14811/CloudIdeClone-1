@@ -12,7 +12,10 @@ import {
   Plus,
   Upload,
   Download,
-  RefreshCw
+  RefreshCw,
+  Trash2,
+  Edit,
+  Copy
 } from 'lucide-react';
 import {
   ContextMenu,
@@ -184,6 +187,35 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     },
   });
 
+  // Delete file/folder mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (fileId: number) => {
+      const response = await apiRequest('DELETE', `/api/files/${fileId}`);
+      return response;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+      toast({
+        title: 'Success',
+        description: 'Item deleted successfully'
+      });
+    },
+    onError: (error: any) => {
+      console.error('Error deleting item:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete item',
+        variant: 'destructive'
+      });
+    },
+  });
+
+  const handleDeleteItem = (node: FileNode) => {
+    if (window.confirm(`Are you sure you want to delete "${node.name}"?`)) {
+      deleteMutation.mutate(node.id);
+    }
+  };
+
   // Build tree structure from flat file list
   const buildTree = (files: FileNode[]): FileNode[] => {
     const tree: FileNode[] = [];
@@ -320,9 +352,49 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
                 )}
                 <span className="truncate text-gray-200">{node.name}</span>
               </div>
+              
+              {/* 3-dot menu button */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 text-gray-400 hover:text-gray-200 hover:bg-slate-700 opacity-0 group-hover:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                    }}
+                  >
+                    <MoreHorizontal className="w-3 h-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="bg-slate-800 border-slate-600 text-gray-200">
+                  {node.type === 'folder' && (
+                    <>
+                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleCreateItem('file', node.id); }}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        New File
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleCreateItem('folder', node.id); }}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        New Folder
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  <DropdownMenuItem 
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      handleDeleteItem(node); 
+                    }}
+                    className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </ContextMenuTrigger>
-          <ContextMenuContent className="bg-slate-800 border-slate-600">
+          <ContextMenuContent className="bg-slate-800 border-slate-600 text-gray-200">
             {node.type === 'folder' && (
               <>
                 <ContextMenuItem onClick={() => handleCreateItem('file', node.id)}>
@@ -335,6 +407,13 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
                 </ContextMenuItem>
               </>
             )}
+            <ContextMenuItem 
+              onClick={() => handleDeleteItem(node)}
+              className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete
+            </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
 

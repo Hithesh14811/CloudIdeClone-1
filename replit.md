@@ -2,7 +2,7 @@
 
 ## Overview
 
-Shetty is a comprehensive cloud IDE platform inspired by Replit, designed to provide a complete in-browser development environment. The system enables users to create, edit, and manage projects with real-time collaboration, AI assistance, and live preview capabilities.
+Shetty is a comprehensive cloud IDE platform inspired by Replit, designed to provide a complete in-browser development environment. The system enables users to create, edit, and manage projects with real-time collaboration, AI assistance, and live preview capabilities. Now includes VS Code-like file tree synchronization that automatically syncs terminal-created files with the database.
 
 ## User Preferences
 
@@ -48,10 +48,13 @@ Preferred communication style: Simple, everyday language.
 - **AI Assistant**: Chat interface for code assistance and project guidance
 - **Preview Panel**: Live preview of project output with mock HTML generation
 
-### File System Watching
-- **Chokidar Integration**: Monitors file system changes in real-time
-- **WebSocket Communication**: Pushes file tree updates from backend to frontend
-- **Live Updates**: Terminal commands automatically update file tree UI without refresh
+### File System Synchronization
+- **Real-time Sync**: Automatically syncs terminal-created files to database with debounced updates
+- **Binary File Handling**: Proper detection and handling of binary files to prevent UTF-8 encoding errors
+- **Manual Refresh**: Refresh button with file sync functionality for immediate updates
+- **VS Code-like Behavior**: File tree updates exactly like VS Code when terminal commands create/modify files
+- **Context Menus**: 3-dot dropdown menus on every file/folder for delete and other operations
+- **Smart Filtering**: Excludes problematic directories (node_modules, etc.) to prevent system limits
 
 ### Authentication System
 - **Replit Auth Integration**: OAuth flow with OpenID Connect for seamless authentication

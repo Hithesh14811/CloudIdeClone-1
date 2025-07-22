@@ -138,9 +138,27 @@ export class FileSync {
               results.push(...childResults);
             }
           } else if (stats.isFile()) {
-            // Add file with content (limit file size)
+            // Add file with content (limit file size and handle binary files)
             if (stats.size < 1024 * 1024) { // Skip files larger than 1MB
-              const content = fs.readFileSync(fullPath, 'utf8').substring(0, 100000); // Limit content size
+              let content = '';
+              try {
+                // Check if file is likely binary
+                if (this.isBinaryFile(item)) {
+                  content = '[Binary file]';
+                } else {
+                  const buffer = fs.readFileSync(fullPath);
+                  // Check for null bytes (binary indicator)
+                  if (buffer.includes(0)) {
+                    content = '[Binary file]';
+                  } else {
+                    content = buffer.toString('utf8').substring(0, 50000); // Limit content size
+                  }
+                }
+              } catch (error) {
+                console.error(`Error reading file ${fullPath}:`, error);
+                content = '[Error reading file]';
+              }
+              
               results.push({
                 name: item,
                 path: itemRelativePath.startsWith('/') ? itemRelativePath : `/${itemRelativePath}`,
@@ -180,17 +198,16 @@ export class FileSync {
     const skipExtensions = [
       '.log',
       '.tmp',
-      '.cache',
-      '.lock'
+      '.cache'
     ];
 
-    // Skip hidden files
+    // Skip hidden files except important ones
     if (item.startsWith('.') && item !== '.gitignore' && item !== '.env') {
       return true;
     }
 
     // Skip patterns
-    if (skipPatterns.some(pattern => item === pattern || item.includes(pattern))) {
+    if (skipPatterns.some(pattern => item === pattern)) {
       return true;
     }
 
@@ -200,6 +217,19 @@ export class FileSync {
     }
 
     return false;
+  }
+
+  private isBinaryFile(filename: string): boolean {
+    const binaryExtensions = [
+      '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.ico',
+      '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+      '.zip', '.tar', '.gz', '.rar', '.7z',
+      '.exe', '.dll', '.so', '.dylib',
+      '.mp3', '.mp4', '.avi', '.mov', '.wav',
+      '.woff', '.woff2', '.ttf', '.eot'
+    ];
+    
+    return binaryExtensions.some(ext => filename.toLowerCase().endsWith(ext));
   }
 
   // Force immediate sync

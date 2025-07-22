@@ -392,15 +392,21 @@ body {
       console.log(`Files synced for project ${projectId}`);
       
       // Force refresh by emitting socket event
-      req.app.get('io').emit('files:forceRefresh', { projectId });
-      console.log(`Force refreshing file tree for project ${projectId}`);
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('files:forceRefresh', { projectId });
+        console.log(`Force refreshing file tree for project ${projectId}`);
+      }
       
       res.json({ success: true, synced: true });
     } catch (error) {
       console.error('Error during file sync:', error);
       
       // Still try to refresh UI
-      req.app.get('io').emit('files:forceRefresh', { projectId });
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('files:forceRefresh', { projectId });
+      }
       const errorMessage = error instanceof Error ? error.message : String(error);
       res.json({ success: true, synced: false, error: errorMessage });
     }
