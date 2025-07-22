@@ -17,7 +17,16 @@ interface IDEProps {
 export default function IDE({ projectId }: IDEProps) {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
-  const ideHook = useIDE(projectId);
+  const { currentProject } = useIDE(projectId);
+  
+  // Update document title with project name
+  useEffect(() => {
+    if (currentProject?.name) {
+      document.title = `${currentProject.name} - Shetty IDE`;
+    } else {
+      document.title = "Shetty IDE";
+    }
+  }, [currentProject]);
 
   // Redirect to home if not authenticated
   useEffect(() => {
@@ -47,7 +56,7 @@ export default function IDE({ projectId }: IDEProps) {
 
   return (
     <div className="h-screen flex flex-col bg-slate-900 text-gray-200 font-sans overflow-hidden">
-      <TopNavBar />
+      <TopNavBar projectName={currentProject?.name} />
       
       <div className="flex-1 flex overflow-hidden">
         <FileExplorer />

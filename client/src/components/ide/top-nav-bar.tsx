@@ -7,7 +7,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Code, Play, Bot, Menu, Circle } from "lucide-react";
 
-export default function TopNavBar() {
+interface TopNavBarProps {
+  projectName?: string;
+}
+
+export default function TopNavBar({ projectName }: TopNavBarProps) {
   const { user } = useAuth();
   const { currentProject, saveCurrentFile, runProject } = useIDE();
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
@@ -42,7 +46,7 @@ export default function TopNavBar() {
             <Code className="w-4 h-4 text-white" />
           </div>
           <span className="font-semibold text-gray-200">
-            {currentProject?.name || "Shetty"}
+            {projectName || currentProject?.name || "Shetty"}
           </span>
         </div>
         

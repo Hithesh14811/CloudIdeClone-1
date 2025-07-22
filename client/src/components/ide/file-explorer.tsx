@@ -11,6 +11,7 @@ export default function FileExplorer() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { currentProject, openFile, currentFile, setShowCreateModal } = useIDE();
+  const [expandedFolders, setExpandedFolders] = useState<Set<number>>(new Set());
   
   const { data: files, isLoading } = useQuery<FileType[]>({
     queryKey: ["/api/projects", currentProject?.id, "files"],
@@ -65,9 +66,66 @@ export default function FileExplorer() {
   };
 
   const handleFileClick = (file: FileType) => {
-    if (!file.isFolder) {
+    if (file.isFolder) {
+      setExpandedFolders(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(file.id)) {
+          newSet.delete(file.id);
+        } else {
+          newSet.add(file.id);
+        }
+        return newSet;
+      });
+    } else {
       openFile(file);
     }
+  };
+
+  const createNestedFileList = (files: FileType[], parentId: number | null = null, depth: number = 0): JSX.Element[] => {
+    const filteredFiles = files.filter(file => {
+      if (parentId === null) {
+        return !file.parentId || file.parentId === 0;
+      }
+      return file.parentId === parentId;
+    });
+
+    return filteredFiles.map((file) => {
+      const isExpanded = expandedFolders.has(file.id);
+      const hasChildren = files.some(f => f.parentId === file.id);
+      
+      return (
+        <div key={file.id}>
+          <div
+            className={`flex items-center px-2 py-1 rounded text-sm cursor-pointer transition-colors ${
+              currentFile?.id === file.id
+                ? "bg-slate-600 border-l-2 border-blue-500"
+                : "hover:bg-slate-700"
+            }`}
+            style={{ paddingLeft: `${8 + depth * 16}px` }}
+            onClick={() => handleFileClick(file)}
+          >
+            {file.isFolder ? (
+              <>
+                {isExpanded ? (
+                  <FolderOpen className="w-4 h-4 text-yellow-500 mr-2" />
+                ) : (
+                  <Folder className="w-4 h-4 text-yellow-500 mr-2" />
+                )}
+              </>
+            ) : (
+              getFileIcon(file)
+            )}
+            <span className="ml-1 truncate">{file.name}</span>
+          </div>
+          
+          {file.isFolder && isExpanded && hasChildren && (
+            <div>
+              {createNestedFileList(files, file.id, depth + 1)}
+            </div>
+          )}
+        </div>
+      );
+    });
   };
 
   if (!currentProject) {
@@ -126,20 +184,7 @@ export default function FileExplorer() {
         ) : (
           <div className="p-2">
             <div className="space-y-0.5">
-              {(files || []).map((file: FileType) => (
-                <div
-                  key={file.id}
-                  className={`flex items-center px-2 py-1 rounded text-sm cursor-pointer transition-colors ${
-                    currentFile?.id === file.id
-                      ? "bg-slate-600 border-l-2 border-blue-500"
-                      : "hover:bg-slate-700"
-                  }`}
-                  onClick={() => handleFileClick(file)}
-                >
-                  {getFileIcon(file)}
-                  <span className="ml-2 truncate">{file.name}</span>
-                </div>
-              ))}
+              {createNestedFileList(files || [])}
             </div>
           </div>
         )}
