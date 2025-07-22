@@ -156,7 +156,23 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     // Listen for file changes from terminal with new file data format
     const handleFileChanges = (data: any) => {
       console.log('Files changed via socket:', data);
-      if (data.projectId == projectId && data.files) {
+      
+      // Handle new realtime watcher format with tree structure
+      if (data.projectId == projectId && data.tree) {
+        console.log('Updating file tree with new tree format');
+        // Keep loading indicator hidden for socket updates too
+        setShowLoadingIndicator(false);
+        
+        // Convert tree format to flat file list for compatibility
+        const flatFiles = convertTreeToFlatFiles(data.tree);
+        
+        // Update React Query cache directly with socket data to avoid API call
+        queryClient.setQueryData(['project-files', projectId], flatFiles);
+        
+        // Keep expanded folders state - no reset needed
+      }
+      // Handle legacy format with files array (for backward compatibility)
+      else if (data.projectId == projectId && data.files) {
         console.log('Updating file tree with socket data:', data.files.length, 'files');
         // Keep loading indicator hidden for socket updates too
         setShowLoadingIndicator(false);
@@ -166,6 +182,39 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
         
         // Keep expanded folders state - no reset needed
       }
+    };
+
+    // Helper function to convert tree structure to flat file list
+    const convertTreeToFlatFiles = (tree: any): FileNode[] => {
+      const flatFiles: FileNode[] = [];
+      let currentId = Date.now(); // Generate temporary IDs for new files
+      
+      const processNode = (node: any, parentPath: string = '') => {
+        const fullPath = parentPath + node.path;
+        
+        // Add current node to flat list
+        flatFiles.push({
+          id: currentId++,
+          name: node.name,
+          type: node.type,
+          path: fullPath,
+          content: '',
+          children: []
+        });
+        
+        // Process children recursively
+        if (node.children && node.children.length > 0) {
+          node.children.forEach((child: any) => {
+            processNode(child, fullPath);
+          });
+        }
+      };
+      
+      if (tree) {
+        processNode(tree);
+      }
+      
+      return flatFiles;
     };
 
     socketRef.current.on('files:changed', handleFileChanges);
