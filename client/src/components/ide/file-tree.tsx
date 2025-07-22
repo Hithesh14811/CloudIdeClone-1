@@ -83,7 +83,9 @@ const getFileIcon = (filename: string) => {
 export default function FileTree({ projectId, onFileSelect, selectedFile, onFileTreeUpdateReceiver }: FileTreeProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [expandedFolderPaths, setExpandedFolderPaths] = useState<Set<string>>(new Set(['/'])); // Root always expanded by path
+  // Use ref to persist expanded folders state across refreshes
+  const expandedFolderPathsRef = useRef<Set<string>>(new Set(['/app'])); // Root always expanded by path
+  const [expandedFolderPaths, setExpandedFolderPaths] = useState<Set<string>>(new Set(['/app'])); // Local state for re-renders
   const [creatingItem, setCreatingItem] = useState<{
     type: 'file' | 'folder';
     parentId?: number;
@@ -97,6 +99,13 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   const [showLoadingIndicator, setShowLoadingIndicator] = useState(true); // Control loading indicator visibility
   const socketRef = useRef<Socket | null>(null);
   const autoRefreshRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Function to update both ref and state for expanded folders
+  const updateExpandedFolders = (updater: (prev: Set<string>) => Set<string>) => {
+    const newExpandedPaths = updater(expandedFolderPathsRef.current);
+    expandedFolderPathsRef.current = newExpandedPaths;
+    setExpandedFolderPaths(new Set(newExpandedPaths)); // Create new Set to trigger re-render
+  };
 
   // Fetch files for the project 
   const { data: files = [], isLoading, refetch } = useQuery<FileNode[]>({
@@ -125,6 +134,17 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       setShowLoadingIndicator(false);
     }
   }, [files, isLoading]);
+  
+  // Restore expanded state after data refresh
+  useEffect(() => {
+    if (files.length > 0) {
+      // Debug logging
+      console.log('File data refreshed, restoring expanded state:', Array.from(expandedFolderPathsRef.current));
+      console.log('Available file paths:', files.map(f => f.path));
+      // Ensure the state is synced with the ref after data refresh
+      setExpandedFolderPaths(new Set(expandedFolderPathsRef.current));
+    }
+  }, [files]);
 
   // Set up file tree update receiver
   useEffect(() => {
@@ -419,13 +439,17 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   };
 
   const handleToggleExpand = (nodePath: string) => {
-    setExpandedFolderPaths(prev => {
+    console.log('Toggling folder expansion for:', nodePath);
+    updateExpandedFolders(prev => {
       const newSet = new Set(prev);
       if (newSet.has(nodePath)) {
+        console.log('Collapsing folder:', nodePath);
         newSet.delete(nodePath);
       } else {
+        console.log('Expanding folder:', nodePath);
         newSet.add(nodePath);
       }
+      console.log('New expanded folders:', Array.from(newSet));
       return newSet;
     });
   };
@@ -439,7 +463,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     if (parentId) {
       const parentFile = files.find((f: FileNode) => f.id === parentId);
       if (parentFile) {
-        setExpandedFolderPaths(prev => new Set(Array.from(prev).concat(parentFile.path)));
+        updateExpandedFolders(prev => new Set(Array.from(prev).concat(parentFile.path)));
       }
     }
   };
