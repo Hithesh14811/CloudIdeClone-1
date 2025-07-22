@@ -219,7 +219,33 @@ body {
         return res.status(404).json({ message: "File not found" });
       }
       
+      // Delete from database first
       await storage.deleteFile(fileId);
+      
+      // Also delete from filesystem workspace
+      try {
+        const fs = await import('fs');
+        const path = await import('path');
+        const workspaceDir = `/tmp/shetty-workspace/${process.env.REPL_ID || 'dev'}/${file.projectId}`;
+        const fullFilePath = path.join(workspaceDir, file.path);
+        
+        if (fs.existsSync(fullFilePath)) {
+          const stats = fs.lstatSync(fullFilePath);
+          if (stats.isDirectory()) {
+            // Delete directory recursively
+            fs.rmSync(fullFilePath, { recursive: true, force: true });
+            console.log(`Deleted directory from filesystem: ${fullFilePath}`);
+          } else {
+            // Delete file
+            fs.unlinkSync(fullFilePath);
+            console.log(`Deleted file from filesystem: ${fullFilePath}`);
+          }
+        }
+      } catch (fsError) {
+        console.error(`Error deleting from filesystem: ${fsError}`);
+        // Don't fail the API call if filesystem deletion fails
+      }
+      
       res.json({ message: "File deleted successfully" });
     } catch (error) {
       console.error("Error deleting file:", error);

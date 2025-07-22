@@ -247,9 +247,12 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     if (selectedCount === 0) return;
     
     if (window.confirm(`Are you sure you want to delete ${selectedCount} selected items?`)) {
-      // Delete all selected files
-      Array.from(selectedFiles).forEach(fileId => {
-        deleteMutation.mutate(fileId);
+      // Delete all selected files sequentially to avoid overwhelming the server
+      const selectedArray = Array.from(selectedFiles);
+      selectedArray.forEach((fileId, index) => {
+        setTimeout(() => {
+          deleteMutation.mutate(fileId);
+        }, index * 100); // Stagger deletions by 100ms
       });
       setSelectedFiles(new Set());
     }

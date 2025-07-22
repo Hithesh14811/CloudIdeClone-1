@@ -72,13 +72,9 @@ export class FileSync {
       }
     }
 
-    // Check for deleted files
-    for (const dbPath of Array.from(dbFileMap.keys())) {
-      const dbFile = dbFileMap.get(dbPath)!;
-      if (!fsFileMap.has(dbPath)) {
-        toDelete.push(dbFile.id);
-      }
-    }
+    // Check for deleted files (but be careful not to delete files that were intentionally removed from DB)
+    // We'll skip auto-deletion of files that don't exist in filesystem to avoid conflicts
+    // Users can manually delete files they don't want through the UI
 
     // Perform database operations
     console.log(`Sync stats: ${toAdd.length} to add, ${toUpdate.length} to update, ${toDelete.length} to delete`);
