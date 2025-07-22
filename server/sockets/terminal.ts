@@ -69,6 +69,13 @@ export function setupTerminalSocket(io: SocketIOServer) {
         // Create PTY process with error handling
         let ptyProcess;
         try {
+          // Use minimal args to avoid shell configuration issues
+          if (shell === 'bash') {
+            args = []; // Let bash use default behavior
+          } else if (shell === 'sh') {
+            args = []; // Let sh use default behavior
+          }
+
           ptyProcess = pty.spawn(shell, args, {
             name: 'xterm-color',
             cols: 80,
@@ -78,10 +85,14 @@ export function setupTerminalSocket(io: SocketIOServer) {
               ...process.env,
               TERM: 'xterm-256color',
               PATH: process.env.PATH,
-              HOME: process.env.HOME || workingDir,
+              HOME: workingDir,
               SHELL: shell,
+              USER: 'user',
+              PS1: '$ ', // Simple prompt
             }
           });
+
+          console.log(`PTY process started with PID: ${ptyProcess.pid}`);
         } catch (spawnError) {
           console.error('Failed to spawn PTY process:', spawnError);
           socket.emit('terminal:error', { message: `Failed to start shell: ${shell}` });
@@ -112,7 +123,10 @@ export function setupTerminalSocket(io: SocketIOServer) {
           terminalSessions.delete(sessionId);
         });
 
-        socket.emit('terminal:ready', { sessionId, cols: 80, rows: 24 });
+        // Wait a moment for the shell to initialize before sending ready
+        setTimeout(() => {
+          socket.emit('terminal:ready', { sessionId, cols: 80, rows: 24 });
+        }, 500);
       } catch (error) {
         console.error('Error starting terminal:', error);
         socket.emit('terminal:error', { message: 'Failed to start terminal' });

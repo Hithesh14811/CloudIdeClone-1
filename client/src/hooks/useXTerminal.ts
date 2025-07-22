@@ -133,7 +133,6 @@ export function useXTerminal(): XTerminalHook {
       socket.off('terminal:error');
       socket.off('terminal:exit');
       socket.off('terminal:stopped');
-      terminal.dispose();
     };
   }, [socket, terminal, sessionId]);
 

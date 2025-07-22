@@ -43,7 +43,7 @@ Preferred communication style: Simple, everyday language.
 - **File Explorer**: Hierarchical tree view with file/folder creation, navigation, and management
 - **Monaco Editor**: Full-featured code editor with syntax highlighting, autocompletion, and themes
 - **Tab Management**: Multiple file tabs with close functionality and active file tracking
-- **Terminal**: Mock terminal interface with command history and output display
+- **Terminal**: Real xterm.js terminal with node-pty backend for authentic shell experience
 - **AI Assistant**: Chat interface for code assistance and project guidance
 - **Preview Panel**: Live preview of project output with mock HTML generation
 
@@ -83,6 +83,8 @@ Preferred communication style: Simple, everyday language.
 - **@radix-ui/***: Accessible UI component primitives
 - **@tanstack/react-query**: Server state management and caching
 - **monaco-editor**: Professional code editing capabilities
+- **@xterm/xterm**: Professional terminal emulator for web browsers
+- **node-pty**: Pseudo terminal for Node.js enabling real shell processes
 - **express**: Web server framework
 - **passport**: Authentication middleware
 
