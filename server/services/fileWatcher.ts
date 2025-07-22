@@ -27,28 +27,41 @@ export class FileWatcher {
       this.stop();
     }
 
-    // Watch the directory for changes
+    // Watch the directory for changes with aggressive filtering to avoid system limits
     this.watcher = chokidar.watch(this.watchPath, {
       ignored: [
         /(^|[\/\\])\../, // ignore dotfiles
-        '**/node_modules/**', // ignore node_modules
+        '**/node_modules/**', // ignore node_modules completely
         '**/\.git/**', // ignore git
         '**/*~', // ignore temp files
         '**/tmp/**', // ignore tmp directories
         '**/*.tmp', // ignore tmp files
         '**/dist/**', // ignore build directories
-        '**/build/**' // ignore build directories
+        '**/build/**', // ignore build directories
+        '**/coverage/**', // ignore coverage
+        '**/.next/**', // ignore Next.js build
+        '**/.nuxt/**', // ignore Nuxt build
+        '**/out/**', // ignore output directories
+        '**/*.log', // ignore log files
+        '**/logs/**', // ignore log directories
+        '**/.cache/**', // ignore cache directories
+        '**/vendor/**', // ignore vendor directories
+        '**/public/static/**', // ignore static build assets
       ],
       persistent: true,
-      ignoreInitial: false,
-      depth: 10, // Limit depth to avoid infinite recursion
+      ignoreInitial: true, // Don't scan initial files, reduces load
+      depth: 5, // Limit depth more aggressively
       awaitWriteFinish: {
-        stabilityThreshold: 200,
-        pollInterval: 100
+        stabilityThreshold: 500, // Wait longer for file operations to complete
+        pollInterval: 200
       },
-      followSymlinks: false, // Don't follow symlinks
-      ignorePermissionErrors: true, // Ignore permission errors
-      atomic: true // Treat moves as atomic
+      followSymlinks: false,
+      ignorePermissionErrors: true,
+      atomic: true,
+      usePolling: false, // Use native file system events for better performance
+      interval: 1000, // Polling interval if usePolling is true
+      binaryInterval: 3000, // Polling for binary files
+      alwaysStat: false // Don't stat files unless needed
     });
 
     // Send initial file tree
@@ -56,15 +69,30 @@ export class FileWatcher {
       this.sendFileTreeUpdate();
     }, 100);
 
-    // Listen for changes
+    // Listen for changes with throttling to prevent spam
+    let updateTimeout: NodeJS.Timeout | null = null;
+    const throttledUpdate = () => {
+      if (updateTimeout) clearTimeout(updateTimeout);
+      updateTimeout = setTimeout(() => {
+        this.sendFileTreeUpdate();
+        updateTimeout = null;
+      }, 300); // Throttle updates to max every 300ms
+    };
+
     this.watcher
-      .on('add', () => this.sendFileTreeUpdate())
-      .on('addDir', () => this.sendFileTreeUpdate())
-      .on('change', () => this.sendFileTreeUpdate())
-      .on('unlink', () => this.sendFileTreeUpdate())
-      .on('unlinkDir', () => this.sendFileTreeUpdate())
-      .on('error', (error) => {
-        console.error('File watcher error:', error);
+      .on('add', throttledUpdate)
+      .on('addDir', throttledUpdate)
+      .on('change', throttledUpdate)
+      .on('unlink', throttledUpdate)
+      .on('unlinkDir', throttledUpdate)
+      .on('error', (error: any) => {
+        // Handle ENOSPC errors gracefully
+        if (error?.code === 'ENOSPC') {
+          console.warn('File watcher limit reached, trying to continue with reduced watching');
+          // Don't crash, just log and continue
+        } else {
+          console.error('File watcher error:', error);
+        }
       });
 
     console.log(`File watcher started for project ${this.projectId} at ${this.watchPath}`);
@@ -78,7 +106,7 @@ export class FileWatcher {
     }
   }
 
-  private sendFileTreeUpdate() {
+  sendFileTreeUpdate() {
     try {
       const tree = this.buildFileTree(this.watchPath);
       if (tree) {
@@ -90,6 +118,12 @@ export class FileWatcher {
     } catch (error) {
       console.error('Error building file tree:', error);
     }
+  }
+
+  // Manual refresh method for when automatic updates fail
+  forceRefresh() {
+    console.log(`Force refreshing file tree for project ${this.projectId}`);
+    this.sendFileTreeUpdate();
   }
 
   private buildFileTree(dir: string, relativePath: string = ''): FileTreeNode | null {

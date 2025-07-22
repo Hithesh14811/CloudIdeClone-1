@@ -126,9 +126,33 @@ export function setupTerminalSocket(io: SocketIOServer) {
         
         terminalSessions.set(sessionId, session);
 
-        // Handle PTY output
+        // Handle PTY output with buffering for better performance
+        let outputBuffer = '';
+        let flushTimeout: NodeJS.Timeout | null = null;
+        
+        const flushOutput = () => {
+          if (outputBuffer.length > 0) {
+            socket.emit('terminal:output', outputBuffer);
+            outputBuffer = '';
+          }
+          flushTimeout = null;
+        };
+        
         ptyProcess.onData((data) => {
-          socket.emit('terminal:output', data);
+          outputBuffer += data;
+          
+          // Immediate flush for certain characters (user interaction)
+          if (data.includes('\n') || data.includes('\r') || data.includes('\b') || data.includes('\u001b')) {
+            if (flushTimeout) {
+              clearTimeout(flushTimeout);
+            }
+            flushOutput();
+          } else {
+            // Buffer other output for a short time
+            if (!flushTimeout) {
+              flushTimeout = setTimeout(flushOutput, 10);
+            }
+          }
         });
 
         // Handle PTY exit
@@ -208,6 +232,23 @@ export function setupTerminalSocket(io: SocketIOServer) {
       } catch (error) {
         console.error('Error stopping terminal:', error);
         socket.emit('terminal:error', { message: 'Failed to stop terminal' });
+      }
+    });
+
+    socket.on('file-tree:refresh', (data: { projectId: string }) => {
+      try {
+        const { projectId } = data;
+        
+        // Find any terminal session for this project and force refresh its file watcher
+        Array.from(terminalSessions.values()).forEach(session => {
+          if (session.projectId === projectId && session.fileWatcher) {
+            console.log(`Manual file tree refresh requested for project ${projectId}`);
+            session.fileWatcher.forceRefresh();
+          }
+        });
+      } catch (error) {
+        console.error('Error refreshing file tree:', error);
+        socket.emit('file-tree:error', { message: 'Failed to refresh file tree' });
       }
     });
 

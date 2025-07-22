@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
@@ -11,7 +11,8 @@ import {
   MoreHorizontal,
   Plus,
   Upload,
-  Download
+  Download,
+  RefreshCw
 } from 'lucide-react';
 import {
   ContextMenu,
@@ -28,6 +29,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import FileUpload from './file-upload';
+import { io, Socket } from 'socket.io-client';
 
 interface FileNode {
   id: number;
@@ -82,6 +84,8 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     show: boolean;
   }>({ type: 'file', show: false });
   const [newItemName, setNewItemName] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const socketRef = useRef<Socket | null>(null);
 
   // Fetch files for the project
   const { data: files = [], isLoading } = useQuery<FileNode[]>({
@@ -112,6 +116,41 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       });
     }
   }, [onFileTreeUpdateReceiver, queryClient, projectId]);
+
+  // Set up socket connection for manual refresh
+  useEffect(() => {
+    if (!socketRef.current) {
+      socketRef.current = io();
+    }
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, []);
+
+  // Manual refresh function
+  const handleManualRefresh = () => {
+    setIsRefreshing(true);
+    
+    // Try socket refresh first
+    if (socketRef.current) {
+      socketRef.current.emit('file-tree:refresh', { projectId: projectId.toString() });
+    }
+    
+    // Also invalidate query cache as fallback
+    queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+    
+    // Show visual feedback
+    setTimeout(() => {
+      setIsRefreshing(false);
+      toast({ 
+        title: 'File tree refreshed', 
+        description: 'File list has been updated with latest changes'
+      });
+    }, 500);
+  };
 
   // Create file/folder mutation
   const createMutation = useMutation({
@@ -347,16 +386,27 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       <div className="p-3 border-b border-slate-700">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium text-gray-200 uppercase tracking-wider">Files</h3>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0 text-gray-400 hover:text-gray-200 hover:bg-slate-700"
-              >
-                <MoreHorizontal className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
+          <div className="flex items-center space-x-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 text-gray-400 hover:text-gray-200 hover:bg-slate-700"
+              onClick={handleManualRefresh}
+              title="Refresh file tree"
+              disabled={isRefreshing}
+            >
+              <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 text-gray-400 hover:text-gray-200 hover:bg-slate-700"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
             <DropdownMenuContent className="bg-slate-800 border-slate-600 text-gray-200">
               <DropdownMenuItem onClick={() => handleCreateItem('file')}>
                 <Plus className="w-4 h-4 mr-2" />
@@ -375,7 +425,8 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
                 Download ZIP
               </DropdownMenuItem>
             </DropdownMenuContent>
-          </DropdownMenu>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
 
