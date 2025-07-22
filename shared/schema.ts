@@ -7,6 +7,7 @@ import {
   index,
   serial,
   boolean,
+  integer,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -51,8 +52,8 @@ export const files = pgTable("files", {
   path: text("path").notNull(),
   content: text("content").default(""),
   isFolder: boolean("is_folder").default(false),
-  parentId: serial("parent_id"),
-  projectId: serial("project_id").notNull(),
+  parentId: integer("parent_id").references(() => files.id, { onDelete: "cascade" }),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
