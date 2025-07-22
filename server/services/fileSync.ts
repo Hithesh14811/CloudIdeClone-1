@@ -6,6 +6,8 @@ export class FileSync {
   private projectId: number;
   private workspaceDir: string;
   private syncTimeout: NodeJS.Timeout | null = null;
+  private recentlyDeleted = new Set<string>(); // Track recently deleted file paths
+  private deleteTimeout: NodeJS.Timeout | null = null;
 
   constructor(projectId: number, workspaceDir: string) {
     this.projectId = projectId;
@@ -53,6 +55,12 @@ export class FileSync {
       const dbFile = dbFileMap.get(fsPath);
       
       if (!dbFile) {
+        // Check if this file was recently deleted - if so, skip adding it back
+        if (this.recentlyDeleted.has(fsFile.path)) {
+          console.log(`Skipping recently deleted file: ${fsFile.path}`);
+          continue;
+        }
+        
         // New file
         toAdd.push({
           name: fsFile.name,
@@ -237,11 +245,32 @@ export class FileSync {
     await this.performSync();
   }
 
+  // Mark a file as recently deleted to prevent re-sync
+  markAsDeleted(filePath: string): void {
+    this.recentlyDeleted.add(filePath);
+    
+    // Clear the deleted flag after 30 seconds
+    if (this.deleteTimeout) {
+      clearTimeout(this.deleteTimeout);
+    }
+    
+    this.deleteTimeout = setTimeout(() => {
+      this.recentlyDeleted.delete(filePath);
+    }, 30000); // 30 seconds
+  }
+
   // Cleanup
   cleanup(): void {
     if (this.syncTimeout) {
       clearTimeout(this.syncTimeout);
       this.syncTimeout = null;
     }
+    
+    if (this.deleteTimeout) {
+      clearTimeout(this.deleteTimeout);
+      this.deleteTimeout = null;
+    }
+    
+    this.recentlyDeleted.clear();
   }
 }

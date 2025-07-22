@@ -6,6 +6,7 @@ import { insertProjectSchema, insertFileSchema } from "@shared/schema";
 import { z } from "zod";
 import { processAIRequest } from "./services/aiAgent";
 import { updatePreviewFiles } from "./services/preview";
+import { getFileSyncForProject } from "./sockets/terminal";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -222,11 +223,19 @@ body {
       // Delete from database first
       await storage.deleteFile(fileId);
       
+      // Mark file as recently deleted in FileSync to prevent re-sync
+      const fileSync = getFileSyncForProject(file.projectId.toString(), userId);
+      if (fileSync) {
+        fileSync.markAsDeleted(file.path);
+        console.log(`Marked file as deleted: ${file.path}`);
+      }
+      
       // Also delete from filesystem workspace
       try {
         const fs = await import('fs');
         const path = await import('path');
-        const workspaceDir = `/tmp/shetty-workspace/${process.env.REPL_ID || 'dev'}/${file.projectId}`;
+        const { tmpdir } = await import('os');
+        const workspaceDir = path.join(tmpdir(), 'shetty-workspace', userId, file.projectId.toString());
         const fullFilePath = path.join(workspaceDir, file.path);
         
         if (fs.existsSync(fullFilePath)) {
