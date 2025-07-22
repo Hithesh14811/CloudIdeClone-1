@@ -149,3 +149,14 @@ The architecture prioritizes developer experience with hot reloading, type safet
   - Enhanced bulk file deletion with optimistic updates and single toast messages
 - **Result**: File changes from terminal commands now appear within 2 seconds automatically
 - **Status**: ✓ Auto-refresh active, ✓ User operations protected, ✓ Terminal sync working
+
+### January 22, 2025 - Silent File Tree Auto-Refresh
+- **Issue**: File tree auto-refresh showing "Loading files..." indicator every 2 seconds, creating poor user experience
+- **Resolution**: Implemented silent refresh mechanism that hides loading indicators during automatic updates
+- **Features**: 
+  - Loading indicator only shows on initial page load
+  - Auto-refresh, manual refresh, and socket updates happen silently without visual interruption
+  - File tree still refreshes every 2 seconds but users don't see any loading state
+  - Maintains responsive feel while keeping background sync functionality
+- **Result**: File tree updates seamlessly without disruptive loading messages every 2 seconds
+- **Status**: ✓ Silent refresh implemented, ✓ User experience improved, ✓ Background sync maintained

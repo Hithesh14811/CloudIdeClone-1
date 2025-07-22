@@ -95,6 +95,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   const [selectMode, setSelectMode] = useState(false);
   const [isUserCreating, setIsUserCreating] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0); // Force complete refresh
+  const [showLoadingIndicator, setShowLoadingIndicator] = useState(true); // Control loading indicator visibility
   const socketRef = useRef<Socket | null>(null);
   const autoRefreshRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -119,6 +120,13 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     gcTime: 0, // Don't cache results for true refresh behavior
   });
 
+  // Hide loading indicator after first load or when files exist
+  useEffect(() => {
+    if (files.length > 0 || (!isLoading && files.length === 0)) {
+      setShowLoadingIndicator(false);
+    }
+  }, [files, isLoading]);
+
   // Set up file tree update receiver
   useEffect(() => {
     if (onFileTreeUpdateReceiver) {
@@ -140,6 +148,8 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     const handleFileChanges = (data: any) => {
       console.log('Files changed via socket:', data);
       if (data.projectId === projectId) {
+        // Keep loading indicator hidden for socket updates too
+        setShowLoadingIndicator(false);
         // Force complete refresh immediately
         setRefreshKey(prev => prev + 1);
         setExpandedFolders(new Set([0])); // Reset to root expanded only
@@ -168,7 +178,9 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       autoRefreshRef.current = setInterval(() => {
         // Don't refresh if user is actively creating files or in select mode
         if (!isUserCreating && !selectMode && !creatingItem.show) {
-          console.log('Auto-refreshing file tree...');
+          console.log('Auto-refreshing file tree silently...');
+          // Keep loading indicator hidden during auto-refresh
+          setShowLoadingIndicator(false);
           // Force complete refresh by incrementing refresh key
           setRefreshKey(prev => prev + 1);
           // Also clear expanded folders and selections to mimic browser refresh
@@ -192,6 +204,8 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   // Manual refresh function
   const handleManualRefresh = () => {
     setIsRefreshing(true);
+    // Keep loading indicator hidden for manual refresh too
+    setShowLoadingIndicator(false);
     
     // Try socket refresh first
     if (socketRef.current) {
@@ -730,7 +744,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
 
       {/* File Tree */}
       <div className="flex-1 overflow-y-auto">
-        {isLoading ? (
+        {(isLoading && showLoadingIndicator) ? (
           <div className="p-4 text-center">
             <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
             <p className="text-xs text-gray-400 mt-2">Loading files...</p>
