@@ -1,17 +1,18 @@
 import { Server as SocketIOServer } from 'socket.io';
-import { spawn, ChildProcess } from 'child_process';
+import * as pty from 'node-pty';
 import { storage } from '../storage';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { platform } from 'os';
 
 interface TerminalSession {
   id: string;
   projectId: string;
   userId: string;
   workingDir: string;
-  currentDir: string;
-  process?: ChildProcess;
+  ptyProcess: pty.IPty;
+  socketId: string;
 }
 
 const terminalSessions = new Map<string, TerminalSession>();
@@ -40,27 +41,55 @@ export function setupTerminalSocket(io: SocketIOServer) {
           }
         }
         
+        // Determine shell based on platform
+        const shell = platform() === 'win32' ? 'powershell.exe' : 'bash';
+        const args = platform() === 'win32' ? [] : [];
+
+        // Create PTY process
+        const ptyProcess = pty.spawn(shell, args, {
+          name: 'xterm-color',
+          cols: 80,
+          rows: 24,
+          cwd: workingDir,
+          env: {
+            ...process.env,
+            TERM: 'xterm-256color',
+            PATH: process.env.PATH,
+            HOME: workingDir,
+          }
+        });
+
         const session: TerminalSession = {
           id: sessionId,
           projectId,
           userId,
           workingDir,
-          currentDir: workingDir
+          ptyProcess,
+          socketId: socket.id
         };
         
         terminalSessions.set(sessionId, session);
 
-        socket.emit('terminal:ready', { sessionId });
-        socket.emit('terminal:output', 'Welcome to Shetty Terminal\n');
-        socket.emit('terminal:output', 'Type "help" for available commands\n');
-        socket.emit('terminal:output', '$ ');
+        // Handle PTY output
+        ptyProcess.onData((data) => {
+          socket.emit('terminal:output', data);
+        });
+
+        // Handle PTY exit
+        ptyProcess.onExit((code) => {
+          console.log(`Terminal ${sessionId} exited with code ${code}`);
+          socket.emit('terminal:exit', { code });
+          terminalSessions.delete(sessionId);
+        });
+
+        socket.emit('terminal:ready', { sessionId, cols: 80, rows: 24 });
       } catch (error) {
         console.error('Error starting terminal:', error);
         socket.emit('terminal:error', { message: 'Failed to start terminal' });
       }
     });
 
-    socket.on('terminal:input', async (data: { sessionId: string, input: string }) => {
+    socket.on('terminal:input', (data: { sessionId: string, input: string }) => {
       try {
         const { sessionId, input } = data;
         const session = terminalSessions.get(sessionId);
@@ -70,122 +99,59 @@ export function setupTerminalSocket(io: SocketIOServer) {
           return;
         }
 
-        const command = input.trim();
-        
-        // Handle basic commands
-        if (command === 'help') {
-          socket.emit('terminal:output', 'Available commands:\n');
-          socket.emit('terminal:output', '  help       - Show this help\n');
-          socket.emit('terminal:output', '  ls         - List files\n');
-          socket.emit('terminal:output', '  cat <file> - Show file contents\n');
-          socket.emit('terminal:output', '  pwd        - Show current directory\n');
-          socket.emit('terminal:output', '  clear      - Clear terminal\n');
-          socket.emit('terminal:output', '  node -v    - Show Node.js version\n');
-          socket.emit('terminal:output', '  npm -v     - Show npm version\n');
-        } else if (command === 'clear') {
-          socket.emit('terminal:output', '\x1b[2J\x1b[H');
-        } else if (command === 'ls') {
-          const { readdirSync } = await import('fs');
-          try {
-            const files = readdirSync(session.currentDir);
-            files.forEach(file => {
-              socket.emit('terminal:output', file + '\n');
-            });
-          } catch (error) {
-            socket.emit('terminal:output', 'Error listing files\n');
-          }
-        } else if (command === 'pwd') {
-          socket.emit('terminal:output', session.currentDir + '\n');
-        } else if (command.startsWith('cat ')) {
-          const filename = command.substring(4).trim();
-          const { readFileSync } = await import('fs');
-          try {
-            const filePath = join(session.currentDir, filename);
-            const content = readFileSync(filePath, 'utf-8');
-            socket.emit('terminal:output', content + '\n');
-          } catch (error) {
-            socket.emit('terminal:output', `cat: ${filename}: No such file or directory\n`);
-          }
-        } else if (command === 'node -v') {
-          socket.emit('terminal:output', 'v18.17.0\n');
-        } else if (command === 'npm -v') {
-          socket.emit('terminal:output', '9.6.7\n');
-        } else if (command.startsWith('echo ')) {
-          const message = command.substring(5);
-          socket.emit('terminal:output', message + '\n');
-        } else {
-          // Try to execute the command directly
-          const childProcess = spawn('bash', ['-c', command], {
-            cwd: session.currentDir,
-            stdio: ['pipe', 'pipe', 'pipe']
-          });
-
-          childProcess.stdout.on('data', (data) => {
-            socket.emit('terminal:output', data.toString());
-          });
-
-          childProcess.stderr.on('data', (data) => {
-            socket.emit('terminal:output', `\x1b[31m${data.toString()}\x1b[0m`);
-          });
-
-          childProcess.on('close', (code) => {
-            socket.emit('terminal:output', '$ ');
-          });
-
-          // Handle process not found
-          childProcess.on('error', (error) => {
-            socket.emit('terminal:output', `Command not found: ${command}\n`);
-            socket.emit('terminal:output', '$ ');
-          });
-          
-          return; // Don't send prompt yet, wait for process to finish
-        }
-        
-        // Send new prompt
-        socket.emit('terminal:output', '$ ');
+        // Write input to PTY
+        session.ptyProcess.write(input);
       } catch (error) {
-        console.error('Error executing terminal command:', error);
-        socket.emit('terminal:output', `Error: ${error}\n$ `);
+        console.error('Error sending input to terminal:', error);
+        socket.emit('terminal:error', { message: 'Failed to send input' });
       }
     });
 
     socket.on('terminal:resize', (data: { sessionId: string, cols: number, rows: number }) => {
-      const { sessionId, cols, rows } = data;
-      const session = terminalSessions.get(sessionId);
-      
-      if (session) {
-        try {
-          // Terminal resize handling would go here
-          console.log(`Terminal resized to ${cols}x${rows}`);
-        } catch (error) {
-          console.error('Error resizing terminal:', error);
+      try {
+        const { sessionId, cols, rows } = data;
+        const session = terminalSessions.get(sessionId);
+        
+        if (!session) {
+          socket.emit('terminal:error', { message: 'No active terminal session' });
+          return;
         }
+
+        // Resize PTY
+        session.ptyProcess.resize(cols, rows);
+      } catch (error) {
+        console.error('Error resizing terminal:', error);
+        socket.emit('terminal:error', { message: 'Failed to resize terminal' });
       }
     });
 
     socket.on('terminal:stop', (data: { sessionId: string }) => {
-      const { sessionId } = data;
-      const session = terminalSessions.get(sessionId);
-      
-      if (session) {
-        if (session.process) {
-          session.process.kill();
+      try {
+        const { sessionId } = data;
+        const session = terminalSessions.get(sessionId);
+        
+        if (session) {
+          session.ptyProcess.kill();
+          terminalSessions.delete(sessionId);
+          socket.emit('terminal:stopped', { sessionId });
         }
-        terminalSessions.delete(sessionId);
-        socket.emit('terminal:stopped');
+      } catch (error) {
+        console.error('Error stopping terminal:', error);
+        socket.emit('terminal:error', { message: 'Failed to stop terminal' });
       }
     });
 
     socket.on('disconnect', () => {
       console.log('Terminal socket disconnected:', socket.id);
-      // Clean up any sessions associated with this socket
-      const sessionsToClean = Array.from(terminalSessions.entries());
-      for (const [sessionId, session] of sessionsToClean) {
-        if (session.process) {
-          session.process.kill();
+      
+      // Clean up any terminal sessions for this socket
+      Array.from(terminalSessions.entries()).forEach(([sessionId, session]) => {
+        if (session.socketId === socket.id) {
+          session.ptyProcess.kill();
+          terminalSessions.delete(sessionId);
+          console.log(`Cleaned up terminal session: ${sessionId}`);
         }
-        terminalSessions.delete(sessionId);
-      }
+      });
     });
   });
 }

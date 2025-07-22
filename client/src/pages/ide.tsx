@@ -6,7 +6,7 @@ import FileTree from "@/components/ide/file-tree";
 import Tabs from "@/components/ide/tabs";
 import MonacoCodeEditor from "@/components/ide/monaco-code-editor";
 import RightPanel from "@/components/ide/right-panel";
-import Terminal from "@/components/ide/terminal";
+import XTerminal from "@/components/ide/XTerminal";
 import { useQuery } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 
@@ -125,7 +125,7 @@ export default function IDE({ projectId }: IDEProps) {
                 file={activeFile}
                 projectId={parseInt(projectId)}
               />
-              <Terminal projectId={projectId} />
+              <XTerminal projectId={projectId} />
             </div>
             
             <RightPanel projectId={projectId} />
