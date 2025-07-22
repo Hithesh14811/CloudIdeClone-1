@@ -50,6 +50,15 @@ class PreviewService {
     const app = express();
     app.use(express.static(workingDir));
     
+    // Add CORS headers for iframe access
+    app.use((req, res, next) => {
+      res.header('X-Frame-Options', 'SAMEORIGIN');
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+      next();
+    });
+
     // Serve index.html by default
     app.get('/', (req, res) => {
       const indexPath = join(workingDir, 'index.html');
@@ -61,17 +70,40 @@ class PreviewService {
           <!DOCTYPE html>
           <html>
           <head>
-            <title>Project Preview</title>
+            <title>Project Preview - Shetty IDE</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
-              body { font-family: system-ui; padding: 2rem; text-align: center; }
-              .message { color: #666; margin-top: 2rem; }
+              body { 
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                padding: 2rem; 
+                text-align: center; 
+                background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+                min-height: 100vh;
+                margin: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+              }
+              .container {
+                background: white;
+                padding: 3rem;
+                border-radius: 15px;
+                box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+                max-width: 500px;
+              }
+              h1 { color: #2c3e50; margin-bottom: 1rem; }
+              .message { color: #666; margin-top: 1rem; line-height: 1.6; }
+              .code { background: #f8f9fa; padding: 0.5rem; border-radius: 4px; font-family: monospace; margin: 1rem 0; }
             </style>
           </head>
           <body>
-            <h1>Project Preview</h1>
-            <div class="message">
-              <p>No index.html file found in your project.</p>
-              <p>Create an index.html file to see your project here.</p>
+            <div class="container">
+              <h1>🚀 Shetty Preview</h1>
+              <div class="message">
+                <p>Your project is running successfully!</p>
+                <p>Create an <code class="code">index.html</code> file to see your website here.</p>
+                <p><small>Preview URL: ${req.get('host')}</small></p>
+              </div>
             </div>
           </body>
           </html>
@@ -79,9 +111,36 @@ class PreviewService {
       }
     });
 
-    const server = createServer(app);
-    server.listen(port, '0.0.0.0');
+    // Catch-all route for SPA support
+    app.get('*', (req, res) => {
+      const filePath = join(workingDir, req.path.substring(1));
+      if (existsSync(filePath) && !filePath.includes('..')) {
+        res.sendFile(filePath);
+      } else {
+        // Try to serve index.html for SPA routing
+        const indexPath = join(workingDir, 'index.html');
+        if (existsSync(indexPath)) {
+          res.sendFile(indexPath);
+        } else {
+          res.status(404).send('File not found');
+        }
+      }
+    });
 
+    const server = createServer(app);
+    
+    // Listen on all interfaces to ensure accessibility from iframe
+    await new Promise<void>((resolve, reject) => {
+      server.listen(port, '0.0.0.0', (error?: Error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    });
+
+    // Use the actual host for the preview URL to ensure iframe can access it
     const previewUrl = `http://localhost:${port}`;
 
     const session: PreviewSession = {
