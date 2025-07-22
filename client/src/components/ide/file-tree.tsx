@@ -192,7 +192,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     },
   });
 
-  // Delete file/folder mutation
+  // Delete file/folder mutation (for single item)
   const deleteMutation = useMutation({
     mutationFn: async (fileId: number) => {
       const response = await apiRequest('DELETE', `/api/files/${fileId}`);
@@ -211,6 +211,54 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
         title: 'Error',
         description: 'Failed to delete item',
         variant: 'destructive'
+      });
+    },
+  });
+
+  // Bulk delete mutation (for multiple items)
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (fileIds: number[]) => {
+      // Delete all files in parallel
+      const deletePromises = fileIds.map(fileId => 
+        apiRequest('DELETE', `/api/files/${fileId}`)
+      );
+      await Promise.all(deletePromises);
+      return fileIds;
+    },
+    onMutate: async (fileIds: number[]) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['project-files', projectId] });
+      
+      // Snapshot the previous value
+      const previousFiles = queryClient.getQueryData(['project-files', projectId]) as FileNode[];
+      
+      // Optimistically update to remove deleted files
+      queryClient.setQueryData(['project-files', projectId], (old: FileNode[] = []) => {
+        return old.filter(file => !fileIds.includes(file.id));
+      });
+      
+      return { previousFiles };
+    },
+    onError: (error: any, fileIds: number[], context) => {
+      // Revert the optimistic update on error
+      if (context?.previousFiles) {
+        queryClient.setQueryData(['project-files', projectId], context.previousFiles);
+      }
+      console.error('Error deleting items:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete some items',
+        variant: 'destructive'
+      });
+    },
+    onSuccess: (deletedIds: number[]) => {
+      // Invalidate and refetch to ensure consistency
+      queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+      
+      // Show success message with count
+      toast({
+        title: 'Success',
+        description: `${deletedIds.length} item${deletedIds.length === 1 ? '' : 's'} deleted successfully`
       });
     },
   });
@@ -246,14 +294,9 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     const selectedCount = selectedFiles.size;
     if (selectedCount === 0) return;
     
-    if (window.confirm(`Are you sure you want to delete ${selectedCount} selected items?`)) {
-      // Delete all selected files sequentially to avoid overwhelming the server
+    if (window.confirm(`Are you sure you want to delete ${selectedCount} selected item${selectedCount === 1 ? '' : 's'}?`)) {
       const selectedArray = Array.from(selectedFiles);
-      selectedArray.forEach((fileId, index) => {
-        setTimeout(() => {
-          deleteMutation.mutate(fileId);
-        }, index * 100); // Stagger deletions by 100ms
-      });
+      bulkDeleteMutation.mutate(selectedArray);
       setSelectedFiles(new Set());
     }
   };
