@@ -94,14 +94,13 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
   const [isUserCreating, setIsUserCreating] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0); // Force complete refresh
   const [showLoadingIndicator, setShowLoadingIndicator] = useState(true); // Control loading indicator visibility
   const socketRef = useRef<Socket | null>(null);
   const autoRefreshRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch files for the project with refresh key for complete reloads
+  // Fetch files for the project 
   const { data: files = [], isLoading, refetch } = useQuery<FileNode[]>({
-    queryKey: ['project-files', projectId, refreshKey],
+    queryKey: ['project-files', projectId],
     queryFn: async () => {
       const response = await apiRequest('GET', `/api/projects/${projectId}/files`);
       // Map database fields to FileNode interface
@@ -117,7 +116,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     },
     enabled: !!projectId,
     staleTime: 0, // Always consider data stale for fresh fetches
-    gcTime: 0, // Don't cache results for true refresh behavior
+    gcTime: 5 * 60 * 1000, // Keep data in cache for 5 minutes for better UX
   });
 
   // Hide loading indicator after first load or when files exist
@@ -150,8 +149,8 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       if (data.projectId === projectId) {
         // Keep loading indicator hidden for socket updates too
         setShowLoadingIndicator(false);
-        // Force complete refresh immediately
-        setRefreshKey(prev => prev + 1);
+        // Silent refetch for socket updates
+        refetch();
         setExpandedFolders(new Set([0])); // Reset to root expanded only
       }
     };
@@ -181,9 +180,9 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
           console.log('Auto-refreshing file tree silently...');
           // Keep loading indicator hidden during auto-refresh
           setShowLoadingIndicator(false);
-          // Force complete refresh by incrementing refresh key
-          setRefreshKey(prev => prev + 1);
-          // Also clear expanded folders and selections to mimic browser refresh
+          // Silent refetch without invalidating cache completely
+          refetch();
+          // Reset expanded folders and selections for clean state
           setExpandedFolders(new Set([0])); // Reset to root expanded only
           setSelectedFiles(new Set()); // Clear selections
         }
