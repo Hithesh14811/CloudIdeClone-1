@@ -1,14 +1,23 @@
-import { useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import TopNavBar from "@/components/ide/top-nav-bar";
-import FileExplorer from "@/components/ide/file-explorer";
-import TabBar from "@/components/ide/tab-bar";
-import MonacoEditor from "@/components/ide/monaco-editor";
+import FileTree from "@/components/ide/file-tree";
+import Tabs from "@/components/ide/tabs";
+import MonacoCodeEditor from "@/components/ide/monaco-code-editor";
 import RightPanel from "@/components/ide/right-panel";
 import Terminal from "@/components/ide/terminal";
+import { useQuery } from '@tanstack/react-query';
+import { apiRequest } from '@/lib/queryClient';
 
-import { useIDE } from "@/hooks/useIDE";
+interface FileNode {
+  id: number;
+  name: string;
+  type: 'file' | 'folder';
+  path: string;
+  content?: string;
+  parentId?: number;
+}
 
 interface IDEProps {
   projectId: string;
@@ -17,16 +26,27 @@ interface IDEProps {
 export default function IDE({ projectId }: IDEProps) {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
-  const { currentProject } = useIDE(projectId);
+  const [openTabs, setOpenTabs] = useState<FileNode[]>([]);
+  const [activeFile, setActiveFile] = useState<FileNode | undefined>();
+
+  // Fetch project details
+  const { data: project } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn: async () => {
+      const response = await apiRequest('GET', `/api/projects/${projectId}`);
+      return response as { id: number; name: string; description: string; userId: string; };
+    },
+    enabled: !!projectId,
+  });
   
   // Update document title with project name
   useEffect(() => {
-    if (currentProject?.name) {
-      document.title = `${currentProject.name} - Shetty IDE`;
+    if (project?.name) {
+      document.title = `${project.name} - Shetty IDE`;
     } else {
       document.title = "Shetty IDE";
     }
-  }, [currentProject]);
+  }, [project]);
 
   // Redirect to home if not authenticated
   useEffect(() => {
@@ -54,24 +74,64 @@ export default function IDE({ projectId }: IDEProps) {
     );
   }
 
+  const handleFileSelect = (file: FileNode) => {
+    if (file.type === 'folder') return;
+    
+    // Add to tabs if not already open
+    const isAlreadyOpen = openTabs.some(tab => tab.id === file.id);
+    if (!isAlreadyOpen) {
+      setOpenTabs(prev => [...prev, file]);
+    }
+    
+    setActiveFile(file);
+  };
+
+  const handleTabClose = (file: FileNode) => {
+    setOpenTabs(prev => prev.filter(tab => tab.id !== file.id));
+    
+    // If closing active tab, switch to another tab or close editor
+    if (activeFile?.id === file.id) {
+      const remainingTabs = openTabs.filter(tab => tab.id !== file.id);
+      setActiveFile(remainingTabs[0] || undefined);
+    }
+  };
+
+  const handleTabSelect = (file: FileNode) => {
+    setActiveFile(file);
+  };
+
   return (
     <div className="h-screen flex flex-col bg-slate-900 text-gray-200 font-sans overflow-hidden">
-      <TopNavBar projectName={currentProject?.name} />
+      <TopNavBar projectName={project?.name} />
       
       <div className="flex-1 flex overflow-hidden">
-        <FileExplorer projectId={projectId} />
+        <FileTree 
+          projectId={parseInt(projectId)} 
+          onFileSelect={handleFileSelect}
+          selectedFile={activeFile}
+        />
         
         <div className="flex-1 flex flex-col">
-          <TabBar />
+          <Tabs 
+            openTabs={openTabs}
+            activeTab={activeFile}
+            onTabSelect={handleTabSelect}
+            onTabClose={handleTabClose}
+          />
           
           <div className="flex-1 flex">
-            <MonacoEditor />
+            <div className="flex-1 flex flex-col">
+              <MonacoCodeEditor 
+                file={activeFile}
+                projectId={parseInt(projectId)}
+              />
+              <Terminal />
+            </div>
+            
             <RightPanel />
           </div>
         </div>
       </div>
-      
-      <Terminal />
     </div>
   );
 }

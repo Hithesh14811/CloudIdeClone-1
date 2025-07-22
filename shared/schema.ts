@@ -52,7 +52,7 @@ export const files = pgTable("files", {
   path: text("path").notNull(),
   content: text("content").default(""),
   isFolder: boolean("is_folder").default(false),
-  parentId: integer("parent_id").references(() => files.id, { onDelete: "cascade" }),
+  parentId: integer("parent_id"),
   projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

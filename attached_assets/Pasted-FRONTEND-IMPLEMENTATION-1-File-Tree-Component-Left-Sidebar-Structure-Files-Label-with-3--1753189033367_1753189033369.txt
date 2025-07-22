@@ -1,0 +1,124 @@
+FRONTEND IMPLEMENTATION
+1. File Tree Component (Left Sidebar)
+Structure:
+
+- Files (Label with 3-dot context menu)
+  - Folder 1 (expandable, with 3-dot)
+    - Subfolder / File (recursively)
+  - File 1
+a. Component Tree
+
+<FileTreeRoot>
+  <FileTreeNode> // file or folder
+    <ContextMenu /> // for 3-dot actions
+  </FileTreeNode>
+</FileTreeRoot>
+b. Add 3-dot Context Menu
+Use @radix-ui/react-context-menu or your own component.
+
+Example options:
+
+- Create File
+- Create Folder
+- Upload File/Folder
+- Download as ZIP
+c. Dynamic Input for New File/Folder
+On Create File or Create Folder:
+
+Insert an inline input box into the file tree
+
+On "Enter", trigger:
+
+Validation
+
+Creation in state & backend
+
+Icon based on extension (e.g. .js, .html, .py)
+
+2. Icons by File Type
+Use something like:
+
+
+const getFileIcon = (filename) => {
+  const ext = filename.split('.').pop();
+  switch(ext) {
+    case 'js': return <JsIcon />;
+    case 'py': return <PythonIcon />;
+    // ...
+    default: return <GenericFileIcon />;
+  }
+};
+3. Monaco Editor Integration
+Install:
+
+bash
+Copy
+Edit
+npm install @monaco-editor/react
+Use:
+
+
+<MonacoEditor
+  height="100%"
+  defaultLanguage="javascript"
+  path={filePath}
+  value={fileContent}
+  onChange={(value) => updateFileContent(filePath, value)}
+/>
+4. Open File in Editor
+When a file is clicked:
+
+Load its content (from state or backend)
+
+Open in editor tab (if tabs enabled)
+
+5. File Tree State
+Use Zustand or Redux to maintain the file structure.
+Structure example:
+
+
+interface FileNode {
+  id: string;
+  name: string;
+  type: 'file' | 'folder';
+  children?: FileNode[];
+  content?: string; // only for files
+  parentId?: string;
+}
+6. Upload / Download ZIP
+Upload: use WebkitDirectory or drag & drop folder upload
+
+Download: zip the structure and stream download
+
+
+import JSZip from 'jszip';
+const zip = new JSZip();
+// recursively add folders and files
+zip.file('index.html', "<html>...</html>");
+const blob = await zip.generateAsync({ type: 'blob' });
+saveAs(blob, "project.zip");
+🛠️ BACKEND STRUCTURE
+Routes:
+
+GET /project/:id/files        → Get file tree
+POST /project/:id/file        → Create file/folder
+PUT /project/:id/file/:id     → Update content
+DELETE /project/:id/file/:id  → Delete
+POST /project/:id/upload      → Upload folder structure
+GET /project/:id/download     → Return ZIP file
+
+DATABASE STRUCTURE
+A Project has many FileNode
+
+FileNode has parentId to allow nested structure
+
+Files saved when user modifies content
+
+🧪 CODE-LIKE BEHAVIOR
+Multiple tabs: allow opening multiple files in tabs
+
+Breadcrumb: show file path
+
+Autosave: debounce user input and autosave content
+
+Preview mode: show static HTML preview if file is HTML

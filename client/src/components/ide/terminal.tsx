@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from "react";
-import { useIDE } from "@/hooks/useIDE";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Trash2, Minus, Maximize2 } from "lucide-react";
 
 export default function Terminal() {
-  const { currentProject } = useIDE();
   const [isMinimized, setIsMinimized] = useState(false);
   const [terminalOutput, setTerminalOutput] = useState<string[]>([
     "Welcome to Shetty Terminal",
