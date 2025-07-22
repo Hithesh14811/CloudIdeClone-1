@@ -94,12 +94,13 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
   const [isUserCreating, setIsUserCreating] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0); // Force complete refresh
   const socketRef = useRef<Socket | null>(null);
   const autoRefreshRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch files for the project
-  const { data: files = [], isLoading } = useQuery<FileNode[]>({
-    queryKey: ['project-files', projectId],
+  // Fetch files for the project with refresh key for complete reloads
+  const { data: files = [], isLoading, refetch } = useQuery<FileNode[]>({
+    queryKey: ['project-files', projectId, refreshKey],
     queryFn: async () => {
       const response = await apiRequest('GET', `/api/projects/${projectId}/files`);
       // Map database fields to FileNode interface
@@ -114,6 +115,8 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       }));
     },
     enabled: !!projectId,
+    staleTime: 0, // Always consider data stale for fresh fetches
+    gcTime: 0, // Don't cache results for true refresh behavior
   });
 
   // Set up file tree update receiver
@@ -137,8 +140,9 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     const handleFileChanges = (data: any) => {
       console.log('Files changed via socket:', data);
       if (data.projectId === projectId) {
-        // Invalidate and refetch immediately
-        queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+        // Force complete refresh immediately
+        setRefreshKey(prev => prev + 1);
+        setExpandedFolders(new Set([0])); // Reset to root expanded only
       }
     };
 
@@ -164,7 +168,12 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       autoRefreshRef.current = setInterval(() => {
         // Don't refresh if user is actively creating files or in select mode
         if (!isUserCreating && !selectMode && !creatingItem.show) {
-          queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+          console.log('Auto-refreshing file tree...');
+          // Force complete refresh by incrementing refresh key
+          setRefreshKey(prev => prev + 1);
+          // Also clear expanded folders and selections to mimic browser refresh
+          setExpandedFolders(new Set([0])); // Reset to root expanded only
+          setSelectedFiles(new Set()); // Clear selections
         }
       }, 2000); // Refresh every 2 seconds
     };
@@ -178,7 +187,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
         clearInterval(autoRefreshRef.current);
       }
     };
-  }, [projectId, isUserCreating, selectMode, creatingItem.show, queryClient]);
+  }, [projectId, isUserCreating, selectMode, creatingItem.show]);
 
   // Manual refresh function
   const handleManualRefresh = () => {
@@ -206,7 +215,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   const createMutation = useMutation({
     mutationFn: async (data: { name: string; type: 'file' | 'folder'; parentId?: number }) => {
       const parentPath = data.parentId 
-        ? files?.find((f: FileNode) => f.id === data.parentId)?.path || ''
+        ? files.find((f: FileNode) => f.id === data.parentId)?.path || ''
         : '';
       const fullPath = parentPath ? `${parentPath}/${data.name}` : `/${data.name}`;
       
@@ -326,7 +335,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   };
 
   const handleSelectAll = () => {
-    const allFileIds = files.map(f => f.id);
+    const allFileIds = files.map((f: FileNode) => f.id);
     setSelectedFiles(new Set(allFileIds));
   };
 
@@ -642,7 +651,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     );
   };
 
-  const treeData = buildTree(files);
+  const treeData = buildTree(files as FileNode[]);
 
   return (
     <div className="w-64 bg-slate-800 border-r border-slate-700 flex flex-col">
