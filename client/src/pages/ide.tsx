@@ -7,7 +7,7 @@ import TabBar from "@/components/ide/tab-bar";
 import MonacoEditor from "@/components/ide/monaco-editor";
 import RightPanel from "@/components/ide/right-panel";
 import Terminal from "@/components/ide/terminal";
-import CreateFileModal from "@/components/ide/create-file-modal";
+
 import { useIDE } from "@/hooks/useIDE";
 
 interface IDEProps {
@@ -72,7 +72,6 @@ export default function IDE({ projectId }: IDEProps) {
       </div>
       
       <Terminal />
-      <CreateFileModal />
     </div>
   );
 }

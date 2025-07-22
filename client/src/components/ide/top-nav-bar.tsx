@@ -13,7 +13,7 @@ interface TopNavBarProps {
 
 export default function TopNavBar({ projectName }: TopNavBarProps) {
   const { user } = useAuth();
-  const { currentProject, saveCurrentFile, runProject, setShowCreateModal } = useIDE();
+  const { currentProject, saveCurrentFile, runProject } = useIDE();
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
 
   const handleSave = async () => {
@@ -69,38 +69,14 @@ export default function TopNavBar({ projectName }: TopNavBarProps) {
       </div>
 
       <div className="flex items-center space-x-2">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button 
-              variant="ghost" 
-              size="sm"
-              className="text-gray-400 hover:text-gray-200 hover:bg-slate-600"
-            >
-              <Menu className="w-4 h-4 mr-1" />
-              File
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="bg-slate-800 border-slate-600">
-            <DropdownMenuItem 
-              onClick={handleSave}
-              className="text-gray-200 hover:bg-slate-700"
-            >
-              Save File
-            </DropdownMenuItem>
-            <DropdownMenuItem 
-              onClick={() => setShowCreateModal({ show: true, type: "file" })}
-              className="text-gray-200 hover:bg-slate-700"
-            >
-              New File
-            </DropdownMenuItem>
-            <DropdownMenuItem 
-              onClick={() => setShowCreateModal({ show: true, type: "folder" })}
-              className="text-gray-200 hover:bg-slate-700"
-            >
-              New Folder
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button 
+          onClick={handleSave}
+          variant="ghost"
+          size="sm"
+          className="text-gray-400 hover:text-gray-200 hover:bg-slate-600"
+        >
+          Save
+        </Button>
         
         <Button 
           onClick={handleRun}
