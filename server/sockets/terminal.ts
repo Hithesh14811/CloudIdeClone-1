@@ -88,7 +88,8 @@ export function setupTerminalSocket(io: SocketIOServer) {
               HOME: workingDir,
               SHELL: shell,
               USER: 'user',
-              PS1: '$ ', // Simple prompt
+              PWD: workingDir,
+              NODE_ENV: 'development',
             }
           });
 
