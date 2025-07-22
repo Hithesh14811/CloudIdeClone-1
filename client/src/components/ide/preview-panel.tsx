@@ -1,102 +1,122 @@
 import { useEffect, useState } from "react";
 import { useIDE } from "@/hooks/useIDE";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, ExternalLink } from "lucide-react";
+import type { File as FileType } from "@shared/schema";
 
 export default function PreviewPanel() {
   const { currentProject } = useIDE();
   const [previewContent, setPreviewContent] = useState<string>("");
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  // Mock preview content generation
+  // Fetch project files
+  const { data: files } = useQuery({
+    queryKey: ["/api/projects", currentProject?.id, "files"],
+    enabled: !!currentProject,
+  });
+
+  // Generate actual preview content from project files
   useEffect(() => {
-    if (currentProject) {
-      // Generate mock preview HTML
-      const mockHtml = `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>${currentProject.name}</title>
-            <style>
-                body {
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    max-width: 600px;
-                    margin: 40px auto;
-                    padding: 20px;
-                    line-height: 1.6;
-                    color: #333;
-                }
-                .header {
-                    text-align: center;
-                    margin-bottom: 40px;
-                }
-                .project-title {
-                    color: #2563eb;
-                    margin-bottom: 10px;
-                }
-                .card {
-                    background: #f8fafc;
-                    border: 1px solid #e2e8f0;
-                    border-radius: 8px;
-                    padding: 20px;
-                    margin: 20px 0;
-                }
-                .button {
-                    background: #3b82f6;
-                    color: white;
-                    border: none;
-                    padding: 10px 20px;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    font-size: 14px;
-                }
-                .button:hover {
-                    background: #2563eb;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <h1 class="project-title">${currentProject.name}</h1>
-                <p>Welcome to your project preview!</p>
-            </div>
-            
-            <div class="card">
-                <h3>🚀 Project Status</h3>
-                <p>Your project is running and ready for development.</p>
-                <button class="button" onclick="alert('Hello from ${currentProject.name}!')">
-                    Click me!
-                </button>
-            </div>
-            
-            <div class="card">
-                <h3>📁 Files</h3>
-                <p>Use the file explorer to manage your project files.</p>
-                <ul>
-                    <li>index.html - Main HTML file</li>
-                    <li>script.js - JavaScript functionality</li>
-                    <li>style.css - Styling</li>
-                </ul>
-            </div>
-            
-            <div class="card">
-                <h3>🤖 AI Assistant</h3>
-                <p>Need help? Use the AI Assistant tab to get coding help and suggestions.</p>
-            </div>
-        </body>
-        </html>
-      `;
-      setPreviewContent(mockHtml);
+    if (currentProject && files) {
+      const fileArray = files as FileType[];
+      
+      // Find main HTML file (index.html or first .html file)
+      const htmlFile = fileArray.find(f => !f.isFolder && (f.name === "index.html" || f.name.endsWith('.html'))) ||
+                       fileArray.find(f => !f.isFolder && f.name.endsWith('.html'));
+      
+      // Find CSS files
+      const cssFiles = fileArray.filter(f => !f.isFolder && f.name.endsWith('.css'));
+      
+      // Find JS files  
+      const jsFiles = fileArray.filter(f => !f.isFolder && f.name.endsWith('.js'));
+
+      if (htmlFile && htmlFile.content) {
+        let htmlContent = htmlFile.content;
+        
+        // Inject CSS content inline
+        cssFiles.forEach(cssFile => {
+          if (cssFile.content) {
+            const cssTag = `<style>/* ${cssFile.name} */\n${cssFile.content}</style>`;
+            // Insert CSS in head or before closing head tag
+            if (htmlContent.includes('</head>')) {
+              htmlContent = htmlContent.replace('</head>', `${cssTag}\n</head>`);
+            } else if (htmlContent.includes('<head>')) {
+              htmlContent = htmlContent.replace('<head>', `<head>\n${cssTag}`);
+            } else {
+              htmlContent = `<style>${cssFile.content}</style>\n${htmlContent}`;
+            }
+          }
+        });
+        
+        // Inject JS content inline
+        jsFiles.forEach(jsFile => {
+          if (jsFile.content) {
+            const jsTag = `<script>/* ${jsFile.name} */\n${jsFile.content}</script>`;
+            // Insert JS before closing body tag or at end
+            if (htmlContent.includes('</body>')) {
+              htmlContent = htmlContent.replace('</body>', `${jsTag}\n</body>`);
+            } else {
+              htmlContent = `${htmlContent}\n${jsTag}`;
+            }
+          }
+        });
+        
+        setPreviewContent(htmlContent);
+      } else {
+        // Fallback: Generate a preview from available files
+        const fallbackHtml = `
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>${currentProject.name}</title>
+              <style>
+                  body {
+                      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                      max-width: 800px;
+                      margin: 40px auto;
+                      padding: 20px;
+                      line-height: 1.6;
+                      background: #f8fafc;
+                  }
+                  .header { text-align: center; margin-bottom: 40px; }
+                  .card { background: white; border-radius: 8px; padding: 20px; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                  .file-list { list-style: none; padding: 0; }
+                  .file-item { padding: 8px; border-left: 4px solid #3b82f6; margin: 4px 0; background: #f1f5f9; }
+              </style>
+          </head>
+          <body>
+              <div class="header">
+                  <h1>${currentProject.name}</h1>
+                  <p>Project Preview</p>
+              </div>
+              
+              <div class="card">
+                  <h3>📁 Project Files</h3>
+                  <ul class="file-list">
+                      ${fileArray.map(file => 
+                        `<li class="file-item">${file.isFolder ? '📁' : '📄'} ${file.name}</li>`
+                      ).join('')}
+                  </ul>
+              </div>
+              
+              <div class="card">
+                  <h3>🚀 Getting Started</h3>
+                  <p>Create an <strong>index.html</strong> file to see your web page preview here!</p>
+              </div>
+          </body>
+          </html>
+        `;
+        setPreviewContent(fallbackHtml);
+      }
     }
-  }, [currentProject]);
+  }, [currentProject, files, refreshKey]);
 
   const handleRefresh = () => {
-    // Force re-render of preview
-    const iframe = document.getElementById('preview-iframe') as HTMLIFrameElement;
-    if (iframe) {
-      iframe.src = iframe.src;
-    }
+    // Force re-render of preview by updating refresh key
+    setRefreshKey(prev => prev + 1);
   };
 
   if (!currentProject) {

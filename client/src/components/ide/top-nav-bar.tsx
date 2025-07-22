@@ -13,7 +13,7 @@ interface TopNavBarProps {
 
 export default function TopNavBar({ projectName }: TopNavBarProps) {
   const { user } = useAuth();
-  const { currentProject, saveCurrentFile, runProject } = useIDE();
+  const { currentProject, saveCurrentFile, runProject, setShowCreateModal } = useIDE();
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
 
   const handleSave = async () => {
@@ -87,10 +87,16 @@ export default function TopNavBar({ projectName }: TopNavBarProps) {
             >
               Save File
             </DropdownMenuItem>
-            <DropdownMenuItem className="text-gray-200 hover:bg-slate-700">
+            <DropdownMenuItem 
+              onClick={() => setShowCreateModal({ show: true, type: "file" })}
+              className="text-gray-200 hover:bg-slate-700"
+            >
               New File
             </DropdownMenuItem>
-            <DropdownMenuItem className="text-gray-200 hover:bg-slate-700">
+            <DropdownMenuItem 
+              onClick={() => setShowCreateModal({ show: true, type: "folder" })}
+              className="text-gray-200 hover:bg-slate-700"
+            >
               New Folder
             </DropdownMenuItem>
           </DropdownMenuContent>

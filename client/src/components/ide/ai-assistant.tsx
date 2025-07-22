@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { useIDE } from "@/hooks/useIDE";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,10 +18,11 @@ interface Message {
 
 export default function AIAssistant() {
   const { toast } = useToast();
+  const { currentProject } = useIDE();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
-      content: "Hello! I'm your AI coding assistant. I can help you build, debug, and improve your code. What would you like to work on?",
+      content: "Hello! I'm your AI coding assistant for Shetty IDE. I can help you build, debug, and improve your code. What would you like to work on today?",
       sender: "ai",
       timestamp: new Date(),
     },
@@ -29,10 +31,12 @@ export default function AIAssistant() {
 
   const sendMessageMutation = useMutation({
     mutationFn: async (message: string) => {
-      const response = await apiRequest("POST", "/api/ai/chat", { message });
-      return await response.json();
+      return await apiRequest("POST", "/api/ai/chat", { 
+        message, 
+        projectId: currentProject?.id 
+      });
     },
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       const aiMessage: Message = {
         id: Date.now().toString() + "-ai",
         content: data.message,
