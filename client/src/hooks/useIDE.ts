@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -27,11 +27,11 @@ export function useIDE(projectId?: string) {
   });
 
   // Set current project when project data is loaded
-  useState(() => {
+  useEffect(() => {
     if (project) {
       setCurrentProject(project as Project);
     }
-  });
+  }, [project]);
 
   // File update mutation
   const updateFileMutation = useMutation({
