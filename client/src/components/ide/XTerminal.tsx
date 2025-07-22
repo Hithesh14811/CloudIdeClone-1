@@ -7,11 +7,12 @@ import { useToast } from '@/hooks/use-toast';
 
 interface XTerminalProps {
   projectId?: string;
+  onFileTreeUpdate?: (callback: (data: any) => void) => void;
 }
 
-export default function XTerminal({ projectId }: XTerminalProps) {
+export default function XTerminal({ projectId, onFileTreeUpdate }: XTerminalProps) {
   const { user } = useAuth();
-  const { terminal, isConnected, isReady, sessionId, startTerminal, stopTerminal, initializeTerminal, resizeTerminal } = useXTerminal();
+  const { terminal, isConnected, isReady, sessionId, startTerminal, stopTerminal, initializeTerminal, resizeTerminal, onFileTreeUpdate: setFileTreeUpdateCallback } = useXTerminal();
   const [isMinimized, setIsMinimized] = useState(false);
   const terminalRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -22,6 +23,16 @@ export default function XTerminal({ projectId }: XTerminalProps) {
       initializeTerminal(terminalRef.current);
     }
   }, [terminal, initializeTerminal]);
+
+  // Set up file tree update callback
+  useEffect(() => {
+    if (setFileTreeUpdateCallback && onFileTreeUpdate) {
+      setFileTreeUpdateCallback((data) => {
+        // Forward to parent component
+        onFileTreeUpdate((callback) => callback(data));
+      });
+    }
+  }, [setFileTreeUpdateCallback, onFileTreeUpdate]);
 
   // Start terminal session when component mounts and terminal is initialized
   useEffect(() => {

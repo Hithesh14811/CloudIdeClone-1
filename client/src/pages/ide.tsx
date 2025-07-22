@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import TopNavBar from "@/components/ide/top-nav-bar";
@@ -28,6 +28,7 @@ export default function IDE({ projectId }: IDEProps) {
   const { isAuthenticated, isLoading } = useAuth();
   const [openTabs, setOpenTabs] = useState<FileNode[]>([]);
   const [activeFile, setActiveFile] = useState<FileNode | undefined>();
+  const [fileTreeUpdateCallback, setFileTreeUpdateCallback] = useState<((data: any) => void) | null>(null);
 
   // Fetch project details
   const { data: project } = useQuery({
@@ -100,6 +101,16 @@ export default function IDE({ projectId }: IDEProps) {
     setActiveFile(file);
   };
 
+  const handleFileTreeUpdate = useCallback((callback: (data: any) => void) => {
+    setFileTreeUpdateCallback(callback);
+  }, []);
+
+  const handleTerminalFileTreeUpdate = useCallback((callback: (data: any) => void) => {
+    if (fileTreeUpdateCallback) {
+      callback(fileTreeUpdateCallback);
+    }
+  }, [fileTreeUpdateCallback]);
+
   return (
     <div className="h-screen flex flex-col bg-slate-900 text-gray-200 font-sans overflow-hidden">
       <TopNavBar projectName={project?.name} projectId={projectId} />
@@ -109,6 +120,7 @@ export default function IDE({ projectId }: IDEProps) {
           projectId={parseInt(projectId)} 
           onFileSelect={handleFileSelect}
           selectedFile={activeFile}
+          onFileTreeUpdateReceiver={handleFileTreeUpdate}
         />
         
         <div className="flex-1 flex flex-col">
@@ -125,7 +137,10 @@ export default function IDE({ projectId }: IDEProps) {
                 file={activeFile}
                 projectId={parseInt(projectId)}
               />
-              <XTerminal projectId={projectId} />
+              <XTerminal 
+                projectId={projectId} 
+                onFileTreeUpdate={handleTerminalFileTreeUpdate}
+              />
             </div>
             
             <RightPanel projectId={projectId} />

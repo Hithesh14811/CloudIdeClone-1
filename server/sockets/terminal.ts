@@ -6,6 +6,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { platform } from 'os';
 import { execSync } from 'child_process';
+import { FileWatcher } from '../services/fileWatcher';
 
 interface TerminalSession {
   id: string;
@@ -14,6 +15,7 @@ interface TerminalSession {
   workingDir: string;
   ptyProcess: pty.IPty;
   socketId: string;
+  fileWatcher?: FileWatcher;
 }
 
 const terminalSessions = new Map<string, TerminalSession>();
@@ -100,13 +102,18 @@ export function setupTerminalSocket(io: SocketIOServer) {
           return;
         }
 
+        // Create file watcher for this project
+        const fileWatcher = new FileWatcher(socket, workingDir, projectId);
+        fileWatcher.start();
+
         const session: TerminalSession = {
           id: sessionId,
           projectId,
           userId,
           workingDir,
           ptyProcess,
-          socketId: socket.id
+          socketId: socket.id,
+          fileWatcher
         };
         
         terminalSessions.set(sessionId, session);
@@ -121,6 +128,13 @@ export function setupTerminalSocket(io: SocketIOServer) {
           const code = typeof exitCode === 'object' ? exitCode.exitCode : exitCode;
           console.log(`Terminal ${sessionId} exited with code ${code}`);
           socket.emit('terminal:exit', { code: code || 0 });
+          
+          // Clean up file watcher
+          const session = terminalSessions.get(sessionId);
+          if (session?.fileWatcher) {
+            session.fileWatcher.stop();
+          }
+          
           terminalSessions.delete(sessionId);
         });
 
@@ -177,6 +191,9 @@ export function setupTerminalSocket(io: SocketIOServer) {
         
         if (session) {
           session.ptyProcess.kill();
+          if (session.fileWatcher) {
+            session.fileWatcher.stop();
+          }
           terminalSessions.delete(sessionId);
           socket.emit('terminal:stopped', { sessionId });
         }
@@ -193,6 +210,9 @@ export function setupTerminalSocket(io: SocketIOServer) {
       Array.from(terminalSessions.entries()).forEach(([sessionId, session]) => {
         if (session.socketId === socket.id) {
           session.ptyProcess.kill();
+          if (session.fileWatcher) {
+            session.fileWatcher.stop();
+          }
           terminalSessions.delete(sessionId);
           console.log(`Cleaned up terminal session: ${sessionId}`);
         }

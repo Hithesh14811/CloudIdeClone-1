@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
@@ -43,6 +43,7 @@ interface FileTreeProps {
   projectId: number;
   onFileSelect: (file: FileNode) => void;
   selectedFile?: FileNode;
+  onFileTreeUpdateReceiver?: (callback: (data: any) => void) => void;
 }
 
 const getFileIcon = (filename: string) => {
@@ -71,7 +72,7 @@ const getFileIcon = (filename: string) => {
   }
 };
 
-export default function FileTree({ projectId, onFileSelect, selectedFile }: FileTreeProps) {
+export default function FileTree({ projectId, onFileSelect, selectedFile, onFileTreeUpdateReceiver }: FileTreeProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [expandedFolders, setExpandedFolders] = useState<Set<number>>(new Set([0])); // Root always expanded
@@ -100,6 +101,17 @@ export default function FileTree({ projectId, onFileSelect, selectedFile }: File
     },
     enabled: !!projectId,
   });
+
+  // Set up file tree update receiver
+  useEffect(() => {
+    if (onFileTreeUpdateReceiver) {
+      onFileTreeUpdateReceiver((data: any) => {
+        console.log('File tree update received:', data);
+        // Invalidate and refetch file tree when terminal changes files
+        queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+      });
+    }
+  }, [onFileTreeUpdateReceiver, queryClient, projectId]);
 
   // Create file/folder mutation
   const createMutation = useMutation({

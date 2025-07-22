@@ -13,6 +13,7 @@ interface XTerminalHook {
   stopTerminal: () => void;
   initializeTerminal: (element: HTMLElement) => void;
   resizeTerminal: () => void;
+  onFileTreeUpdate?: (callback: (data: any) => void) => void;
 }
 
 export function useXTerminal(): XTerminalHook {
@@ -23,6 +24,7 @@ export function useXTerminal(): XTerminalHook {
   const [isReady, setIsReady] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const terminalElement = useRef<HTMLElement | null>(null);
+  const fileTreeCallbackRef = useRef<((data: any) => void) | null>(null);
 
   const initializeTerminal = useCallback((element: HTMLElement) => {
     if (!element || terminal) return;
@@ -127,12 +129,20 @@ export function useXTerminal(): XTerminalHook {
       setSessionId(null);
     });
 
+    // Handle file tree updates from terminal commands
+    socket.on('file-tree-update', (data: any) => {
+      if (fileTreeCallbackRef.current) {
+        fileTreeCallbackRef.current(data);
+      }
+    });
+
     return () => {
       socket.off('terminal:ready');
       socket.off('terminal:output');
       socket.off('terminal:error');
       socket.off('terminal:exit');
       socket.off('terminal:stopped');
+      socket.off('file-tree-update');
     };
   }, [socket, terminal, sessionId]);
 
@@ -149,6 +159,10 @@ export function useXTerminal(): XTerminalHook {
       socket.emit('terminal:stop', { sessionId });
     }
   }, [socket, sessionId]);
+
+  const onFileTreeUpdate = useCallback((callback: (data: any) => void) => {
+    fileTreeCallbackRef.current = callback;
+  }, []);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -167,6 +181,7 @@ export function useXTerminal(): XTerminalHook {
     startTerminal,
     stopTerminal,
     initializeTerminal,
-    resizeTerminal
+    resizeTerminal,
+    onFileTreeUpdate,
   };
 }

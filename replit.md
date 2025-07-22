@@ -44,8 +44,14 @@ Preferred communication style: Simple, everyday language.
 - **Monaco Editor**: Full-featured code editor with syntax highlighting, autocompletion, and themes
 - **Tab Management**: Multiple file tabs with close functionality and active file tracking
 - **Terminal**: Real xterm.js terminal with node-pty backend for authentic shell experience
+- **File System Integration**: Real-time file tree updates using chokidar file watcher
 - **AI Assistant**: Chat interface for code assistance and project guidance
 - **Preview Panel**: Live preview of project output with mock HTML generation
+
+### File System Watching
+- **Chokidar Integration**: Monitors file system changes in real-time
+- **WebSocket Communication**: Pushes file tree updates from backend to frontend
+- **Live Updates**: Terminal commands automatically update file tree UI without refresh
 
 ### Authentication System
 - **Replit Auth Integration**: OAuth flow with OpenID Connect for seamless authentication
@@ -85,6 +91,8 @@ Preferred communication style: Simple, everyday language.
 - **monaco-editor**: Professional code editing capabilities
 - **@xterm/xterm**: Professional terminal emulator for web browsers
 - **node-pty**: Pseudo terminal for Node.js enabling real shell processes
+- **chokidar**: File system watcher for real-time file change detection
+- **socket.io**: Real-time bidirectional event-based communication
 - **express**: Web server framework
 - **passport**: Authentication middleware
 

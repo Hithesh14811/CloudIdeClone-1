@@ -1,0 +1,107 @@
+I already have a fully functional terminal inside my web IDE, and I have a file section (file tree UI) where all user files and folders are displayed.
+Now, I want you to connect the terminal and the file section, so that any changes made by terminal commands (like npx create-react-app, mkdir, touch, etc.) are reflected live in the file tree, exactly like how VS Code does it.
+
+Do this without changing the design of the terminal or file section UI.
+
+🎯 Your Goal:
+Whenever a terminal command creates, deletes, or modifies files/folders:
+
+The file tree UI should update live
+
+No page reload or manual refresh should be required
+
+🛠️ How to Implement It:
+✅ 1. Use chokidar to Watch File System in Backend
+Set up a file watcher in Node.js using chokidar
+
+Watch the user’s project folder (e.g., /user-projects/{user_id})
+
+On any file/folder change (create, delete, rename, update):
+
+Rebuild the file tree as a nested JSON structure
+
+Send this updated structure via WebSocket to the frontend
+
+Use this example watcher:
+
+js
+Copy
+Edit
+const chokidar = require('chokidar')
+const fs = require('fs')
+const path = require('path')
+
+function buildTree(dir) {
+  const stats = fs.statSync(dir)
+  if (!stats.isDirectory()) return null
+
+  const tree = { name: path.basename(dir), type: 'folder', children: [] }
+  const files = fs.readdirSync(dir)
+
+  for (let file of files) {
+    const filePath = path.join(dir, file)
+    const stat = fs.statSync(filePath)
+
+    if (stat.isDirectory()) {
+      const subtree = buildTree(filePath)
+      if (subtree) tree.children.push(subtree)
+    } else {
+      tree.children.push({ name: file, type: 'file' })
+    }
+  }
+
+  return tree
+}
+Emit updates over WebSocket:
+
+js
+Copy
+Edit
+watcher.on('all', () => {
+  const tree = buildTree(projectPath)
+  ws.send(JSON.stringify({ type: 'file-tree-update', tree }))
+})
+✅ 2. Hook the Watcher into the Terminal WebSocket Session
+In your WebSocket connection handler (used for the terminal), call the file watcher function and pass the active ws (WebSocket instance).
+
+This ensures that the same terminal session is responsible for updating the file tree.
+
+✅ 3. Handle Updates on the Frontend
+In the frontend WebSocket message handler:
+
+If message.type === 'file-tree-update', call a function like renderFileTree(message.tree)
+
+This function should update the file section UI to match the current directory structure
+
+Example:
+
+js
+Copy
+Edit
+socket.onmessage = (e) => {
+  const message = JSON.parse(e.data)
+  if (message.type === 'file-tree-update') {
+    renderFileTree(message.tree)
+  } else {
+    terminal.write(e.data)
+  }
+}
+✅ 4. Keep It Modular
+Don’t touch the terminal UI code
+
+Don’t touch the file tree UI layout/design
+
+Just wire together the backend events and frontend updates properly
+
+✨ Expected Final Behavior:
+User types npx create-react-app my-app in the terminal
+
+Thousands of files and folders are created by the script
+
+The backend detects all changes via chokidar
+
+A new nested file structure is sent to the frontend
+
+The frontend updates the file tree section to show my-app/ and all its content in real time
+
+Works just like VS Code’s terminal and explorer integration
