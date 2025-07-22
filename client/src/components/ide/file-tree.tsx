@@ -83,7 +83,7 @@ const getFileIcon = (filename: string) => {
 export default function FileTree({ projectId, onFileSelect, selectedFile, onFileTreeUpdateReceiver }: FileTreeProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [expandedFolders, setExpandedFolders] = useState<Set<number>>(new Set([0])); // Root always expanded
+  const [expandedFolderPaths, setExpandedFolderPaths] = useState<Set<string>>(new Set(['/'])); // Root always expanded by path
   const [creatingItem, setCreatingItem] = useState<{
     type: 'file' | 'folder';
     parentId?: number;
@@ -151,7 +151,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
         setShowLoadingIndicator(false);
         // Silent refetch for socket updates
         refetch();
-        setExpandedFolders(new Set([0])); // Reset to root expanded only
+        // Keep expanded folders state - no reset needed
       }
     };
 
@@ -182,8 +182,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
           setShowLoadingIndicator(false);
           // Silent refetch without invalidating cache completely
           refetch();
-          // Reset expanded folders and selections for clean state
-          setExpandedFolders(new Set([0])); // Reset to root expanded only
+          // Keep expanded folders state - no reset needed
           setSelectedFiles(new Set()); // Clear selections
         }
       }, 2000); // Refresh every 2 seconds
@@ -419,13 +418,13 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     return sortRecursively(tree);
   };
 
-  const handleToggleExpand = (nodeId: number) => {
-    setExpandedFolders(prev => {
+  const handleToggleExpand = (nodePath: string) => {
+    setExpandedFolderPaths(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(nodeId)) {
-        newSet.delete(nodeId);
+      if (newSet.has(nodePath)) {
+        newSet.delete(nodePath);
       } else {
-        newSet.add(nodeId);
+        newSet.add(nodePath);
       }
       return newSet;
     });
@@ -438,7 +437,10 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     
     // Expand parent folder if needed
     if (parentId) {
-      setExpandedFolders(prev => new Set(Array.from(prev).concat(parentId)));
+      const parentFile = files.find((f: FileNode) => f.id === parentId);
+      if (parentFile) {
+        setExpandedFolderPaths(prev => new Set(Array.from(prev).concat(parentFile.path)));
+      }
     }
   };
 
@@ -466,7 +468,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   };
 
   const renderNode = (node: FileNode, depth: number = 0): React.ReactNode => {
-    const isExpanded = expandedFolders.has(node.id);
+    const isExpanded = expandedFolderPaths.has(node.path);
     const hasChildren = node.children && node.children.length > 0;
     const isSelected = selectedFile?.id === node.id;
     const isFileSelected = selectedFiles.has(node.id);
@@ -485,7 +487,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
                   handleSelectFile(node.id);
                 } else {
                   if (node.type === 'folder') {
-                    handleToggleExpand(node.id);
+                    handleToggleExpand(node.path);
                   } else {
                     onFileSelect(node);
                   }
