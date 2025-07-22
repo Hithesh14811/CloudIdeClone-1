@@ -124,7 +124,7 @@ export function setupTerminalSocket(io: SocketIOServer) {
         }
 
         // Create file watcher and file sync for this project
-        const fileWatcher = new FileWatcher(socket, workingDir, projectId, io);
+        const fileWatcher = new FileWatcher(socket, workingDir, projectId);
         const fileSync = new FileSync(parseInt(projectId), workingDir);
         fileWatcher.start();
 
@@ -156,10 +156,9 @@ export function setupTerminalSocket(io: SocketIOServer) {
             syncTimeout = setTimeout(() => {
               fileSync.syncWorkspaceToDatabase().then(() => {
                 console.log(`Files synced for project ${projectId}`);
-                // Emit to all clients, not just this socket
-                console.log(`Broadcasting file tree update to all clients for project ${projectId}`);
-                io.emit('files:changed', { projectId: parseInt(projectId) });
-                io.emit('file-tree-update', { projectId: parseInt(projectId) });
+                socket.emit('files:changed', { projectId: parseInt(projectId) });
+                // Also emit the file tree update event that the frontend expects
+                socket.emit('file-tree-update', { projectId: parseInt(projectId) });
               }).catch(err => {
                 console.error('File sync error:', err);
               });
