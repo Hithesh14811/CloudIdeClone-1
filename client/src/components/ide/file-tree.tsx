@@ -15,7 +15,10 @@ import {
   RefreshCw,
   Trash2,
   Edit,
-  Copy
+  Copy,
+  Check,
+  Square,
+  CheckSquare
 } from 'lucide-react';
 import {
   ContextMenu,
@@ -88,6 +91,8 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   }>({ type: 'file', show: false });
   const [newItemName, setNewItemName] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set());
+  const [selectMode, setSelectMode] = useState(false);
   const socketRef = useRef<Socket | null>(null);
 
   // Fetch files for the project
@@ -216,6 +221,48 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     }
   };
 
+  const handleSelectFile = (fileId: number) => {
+    setSelectedFiles(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(fileId)) {
+        newSet.delete(fileId);
+      } else {
+        newSet.add(fileId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSelectAll = () => {
+    const allFileIds = files.map(f => f.id);
+    setSelectedFiles(new Set(allFileIds));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedFiles(new Set());
+  };
+
+  const handleDeleteSelected = () => {
+    const selectedCount = selectedFiles.size;
+    if (selectedCount === 0) return;
+    
+    if (window.confirm(`Are you sure you want to delete ${selectedCount} selected items?`)) {
+      // Delete all selected files
+      Array.from(selectedFiles).forEach(fileId => {
+        deleteMutation.mutate(fileId);
+      });
+      setSelectedFiles(new Set());
+    }
+  };
+
+  const toggleSelectMode = () => {
+    setSelectMode(!selectMode);
+    if (selectMode) {
+      // Exiting select mode, clear selections
+      setSelectedFiles(new Set());
+    }
+  };
+
   // Build tree structure from flat file list
   const buildTree = (files: FileNode[]): FileNode[] => {
     const tree: FileNode[] = [];
@@ -308,6 +355,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     const isExpanded = expandedFolders.has(node.id);
     const hasChildren = node.children && node.children.length > 0;
     const isSelected = selectedFile?.id === node.id;
+    const isFileSelected = selectedFiles.has(node.id);
 
     return (
       <div key={node.id}>
@@ -316,16 +364,30 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
             <div
               className={`group flex items-center px-2 py-1 text-sm cursor-pointer hover:bg-slate-700 ${
                 isSelected ? 'bg-slate-600 border-l-2 border-blue-500' : ''
-              }`}
+              } ${isFileSelected ? 'bg-blue-900/30' : ''}`}
               style={{ paddingLeft: `${8 + depth * 16}px` }}
               onClick={() => {
-                if (node.type === 'folder') {
-                  handleToggleExpand(node.id);
+                if (selectMode) {
+                  handleSelectFile(node.id);
                 } else {
-                  onFileSelect(node);
+                  if (node.type === 'folder') {
+                    handleToggleExpand(node.id);
+                  } else {
+                    onFileSelect(node);
+                  }
                 }
               }}
             >
+              {/* Selection checkbox in select mode */}
+              {selectMode && (
+                <div className="mr-2">
+                  {isFileSelected ? (
+                    <CheckSquare className="w-4 h-4 text-blue-400" />
+                  ) : (
+                    <Square className="w-4 h-4 text-gray-400" />
+                  )}
+                </div>
+              )}
               <div className="flex items-center flex-1 min-w-0">
                 {node.type === 'folder' ? (
                   <>
@@ -383,6 +445,24 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
                   <DropdownMenuItem 
                     onClick={(e) => { 
                       e.stopPropagation(); 
+                      handleSelectFile(node.id); 
+                    }}
+                  >
+                    {isFileSelected ? (
+                      <>
+                        <Square className="w-4 h-4 mr-2" />
+                        Deselect
+                      </>
+                    ) : (
+                      <>
+                        <CheckSquare className="w-4 h-4 mr-2" />
+                        Select
+                      </>
+                    )}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
                       handleDeleteItem(node); 
                     }}
                     className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
@@ -407,6 +487,19 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
                 </ContextMenuItem>
               </>
             )}
+            <ContextMenuItem onClick={() => handleSelectFile(node.id)}>
+              {isFileSelected ? (
+                <>
+                  <Square className="w-4 h-4 mr-2" />
+                  Deselect
+                </>
+              ) : (
+                <>
+                  <CheckSquare className="w-4 h-4 mr-2" />
+                  Select
+                </>
+              )}
+            </ContextMenuItem>
             <ContextMenuItem 
               onClick={() => handleDeleteItem(node)}
               className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
@@ -495,6 +588,31 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
                 <Plus className="w-4 h-4 mr-2" />
                 New Folder
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={toggleSelectMode}>
+                <CheckSquare className="w-4 h-4 mr-2" />
+                {selectMode ? 'Exit Select Mode' : 'Select Mode'}
+              </DropdownMenuItem>
+              {selectMode && (
+                <>
+                  <DropdownMenuItem onClick={handleSelectAll}>
+                    <Check className="w-4 h-4 mr-2" />
+                    Select All
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleDeselectAll}>
+                    <Square className="w-4 h-4 mr-2" />
+                    Deselect All
+                  </DropdownMenuItem>
+                  {selectedFiles.size > 0 && (
+                    <DropdownMenuItem 
+                      onClick={handleDeleteSelected}
+                      className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete Selected ({selectedFiles.size})
+                    </DropdownMenuItem>
+                  )}
+                </>
+              )}
               <DropdownMenuItem onClick={() => toast({ title: 'Upload', description: 'Feature coming soon!' })}>
                 <Upload className="w-4 h-4 mr-2" />
                 Upload
