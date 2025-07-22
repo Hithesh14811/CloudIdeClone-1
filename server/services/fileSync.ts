@@ -27,7 +27,7 @@ export class FileSync {
       } catch (error) {
         console.error('File sync error:', error);
       }
-    }, 1000); // Debounce for 1 second
+    }, 500); // Debounce for 0.5 seconds for faster updates
   }
 
   private async performSync(): Promise<void> {

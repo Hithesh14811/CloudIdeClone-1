@@ -52,8 +52,8 @@ export class FileWatcher {
       ignoreInitial: true, // Don't scan initial files, reduces load
       depth: 5, // Limit depth more aggressively
       awaitWriteFinish: {
-        stabilityThreshold: 500, // Wait longer for file operations to complete
-        pollInterval: 200
+        stabilityThreshold: 200, // Faster detection of file operations
+        pollInterval: 100
       },
       followSymlinks: false,
       ignorePermissionErrors: true,
@@ -76,7 +76,7 @@ export class FileWatcher {
       updateTimeout = setTimeout(() => {
         this.sendFileTreeUpdate();
         updateTimeout = null;
-      }, 300); // Throttle updates to max every 300ms
+      }, 100); // Faster throttling for real-time updates - max every 100ms
     };
 
     this.watcher

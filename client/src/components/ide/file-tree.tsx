@@ -125,18 +125,32 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     }
   }, [onFileTreeUpdateReceiver, queryClient, projectId]);
 
-  // Set up socket connection for manual refresh
+  // Set up socket connection for manual refresh and real-time updates
   useEffect(() => {
     if (!socketRef.current) {
       socketRef.current = io();
     }
 
+    // Listen for file changes from terminal
+    const handleFileChanges = (data: any) => {
+      console.log('Files changed via socket:', data);
+      if (data.projectId === projectId) {
+        // Invalidate and refetch immediately
+        queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+      }
+    };
+
+    socketRef.current.on('files:changed', handleFileChanges);
+    socketRef.current.on('file-tree-update', handleFileChanges);
+
     return () => {
       if (socketRef.current) {
+        socketRef.current.off('files:changed', handleFileChanges);
+        socketRef.current.off('file-tree-update', handleFileChanges);
         socketRef.current.disconnect();
       }
     };
-  }, []);
+  }, [projectId, queryClient]);
 
   // Manual refresh function
   const handleManualRefresh = () => {

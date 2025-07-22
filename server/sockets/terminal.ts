@@ -157,10 +157,12 @@ export function setupTerminalSocket(io: SocketIOServer) {
               fileSync.syncWorkspaceToDatabase().then(() => {
                 console.log(`Files synced for project ${projectId}`);
                 socket.emit('files:changed', { projectId: parseInt(projectId) });
+                // Also emit the file tree update event that the frontend expects
+                socket.emit('file-tree-update', { projectId: parseInt(projectId) });
               }).catch(err => {
                 console.error('File sync error:', err);
               });
-            }, 3000); // Wait 3 seconds after last output
+            }, 1000); // Wait 1 second after last output for faster updates
           }
           flushTimeout = null;
         };
