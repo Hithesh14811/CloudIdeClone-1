@@ -11,6 +11,7 @@ interface TerminalSession {
   userId: string;
   workingDir: string;
   currentDir: string;
+  process?: ChildProcess;
 }
 
 const terminalSessions = new Map<string, TerminalSession>();
@@ -152,11 +153,10 @@ export function setupTerminalSocket(io: SocketIOServer) {
       const { sessionId, cols, rows } = data;
       const session = terminalSessions.get(sessionId);
       
-      if (session && session.process) {
+      if (session) {
         try {
-          session.process.stdout?.on('resize', () => {
-            // Handle terminal resize
-          });
+          // Terminal resize handling would go here
+          console.log(`Terminal resized to ${cols}x${rows}`);
         } catch (error) {
           console.error('Error resizing terminal:', error);
         }
@@ -179,7 +179,8 @@ export function setupTerminalSocket(io: SocketIOServer) {
     socket.on('disconnect', () => {
       console.log('Terminal socket disconnected:', socket.id);
       // Clean up any sessions associated with this socket
-      for (const [sessionId, session] of terminalSessions.entries()) {
+      const sessionsToClean = Array.from(terminalSessions.entries());
+      for (const [sessionId, session] of sessionsToClean) {
         if (session.process) {
           session.process.kill();
         }

@@ -81,7 +81,7 @@ export function setupPreviewSocket(io: SocketIOServer) {
         const { sessionId, filePath, content } = data;
         const session = previewSessions.get(sessionId);
         
-        if (session && session.port) {
+        if (session) {
           // File change detected, trigger live reload
           socket.emit('preview:live-reload', { 
             filePath,
@@ -96,10 +96,9 @@ export function setupPreviewSocket(io: SocketIOServer) {
     socket.on('disconnect', () => {
       console.log('Preview socket disconnected:', socket.id);
       // Clean up any preview sessions associated with this socket
-      for (const [sessionId, session] of previewSessions.entries()) {
-        if (session.serverId) {
-          stopPreviewServer(session.serverId).catch(console.error);
-        }
+      const sessionsToClean = Array.from(previewSessions.entries());
+      for (const [sessionId] of sessionsToClean) {
+        previewService.destroyPreviewSession(sessionId).catch(console.error);
         previewSessions.delete(sessionId);
       }
     });

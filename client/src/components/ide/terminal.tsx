@@ -29,7 +29,7 @@ export default function Terminal({ projectId }: TerminalProps) {
   useEffect(() => {
     // Start terminal session when component mounts
     if (projectId && user && !isConnected) {
-      startTerminal(projectId, user.id);
+      startTerminal(projectId, (user as any).id || "anonymous");
     }
   }, [projectId, user, isConnected, startTerminal]);
 
@@ -41,7 +41,7 @@ export default function Terminal({ projectId }: TerminalProps) {
     if (projectId && user) {
       stopTerminal();
       setTimeout(() => {
-        startTerminal(projectId, user.id);
+        startTerminal(projectId, (user as any).id || "anonymous");
       }, 1000);
     }
   };

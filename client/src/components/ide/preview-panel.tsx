@@ -16,7 +16,7 @@ export default function PreviewPanel({ projectId }: PreviewPanelProps) {
   useEffect(() => {
     // Start preview when component mounts and project is available
     if (projectId && user && !isReady && !isLoading) {
-      startPreview(projectId, user.id);
+      startPreview(projectId, (user as any).id || "anonymous");
     }
   }, [projectId, user, isReady, isLoading, startPreview]);
 
@@ -24,7 +24,7 @@ export default function PreviewPanel({ projectId }: PreviewPanelProps) {
     if (isReady) {
       refreshPreview();
     } else if (projectId && user) {
-      startPreview(projectId, user.id);
+      startPreview(projectId, (user as any).id || "anonymous");
     }
     setRefreshKey(prev => prev + 1);
   };
@@ -37,7 +37,7 @@ export default function PreviewPanel({ projectId }: PreviewPanelProps) {
 
   const handleStartPreview = () => {
     if (projectId && user) {
-      startPreview(projectId, user.id);
+      startPreview(projectId, (user as any).id || "anonymous");
     }
   };
 

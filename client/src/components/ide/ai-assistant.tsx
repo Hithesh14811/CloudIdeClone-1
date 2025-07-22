@@ -55,7 +55,7 @@ export default function AIAssistant({ projectId }: AIAssistantProps) {
       // If AI performed actions (created/modified files), refresh the file tree
       if (data.actions && data.actions.length > 0) {
         // Invalidate project files to refresh the file tree
-        queryClient.invalidateQueries({ queryKey: ['project-files', parseInt(projectId)] });
+        queryClient.invalidateQueries({ queryKey: ['project-files', parseInt(projectId!)] });
         
         toast({
           title: "Files Updated",

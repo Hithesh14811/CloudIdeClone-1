@@ -765,7 +765,7 @@ ${cssFile.content}
       type: 'create_file',
       fileName: 'styles.css',
       filePath: '/styles.css',
-      content: generateCSSTemplate(message, files)
+      content: await generateCSSTemplate(message, files)
     });
     
     responseMessage = "I've created a new CSS file with modern styling for your project!";
