@@ -86,7 +86,16 @@ export default function FileTree({ projectId, onFileSelect, selectedFile }: File
     queryKey: ['project-files', projectId],
     queryFn: async () => {
       const response = await apiRequest('GET', `/api/projects/${projectId}/files`);
-      return response as FileNode[];
+      // Map database fields to FileNode interface
+      return response.map((file: any) => ({
+        id: file.id,
+        name: file.name,
+        type: file.isFolder ? 'folder' : 'file',
+        path: file.path,
+        content: file.content,
+        parentId: file.parentId,
+        children: []
+      }));
     },
     enabled: !!projectId,
   });
