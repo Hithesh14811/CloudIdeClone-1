@@ -35,10 +35,8 @@ export default function TopNavBar({ projectName, projectId }: TopNavBarProps) {
       setIsRunning(true);
       toast({
         title: "Project Started",
-        description: `Running ${data.projectType} project with ${data.files} files`,
+        description: `Preview server started successfully`,
       });
-      // Auto-stop after 30 seconds for demo
-      setTimeout(() => setIsRunning(false), 30000);
     },
     onError: (error: any) => {
       toast({
@@ -49,13 +47,30 @@ export default function TopNavBar({ projectName, projectId }: TopNavBarProps) {
     }
   });
 
-  const handleRun = () => {
-    if (isRunning) {
+  const stopProjectMutation = useMutation({
+    mutationFn: async () => {
+      if (!projectId) throw new Error("No project selected");
+      return await apiRequest("POST", `/api/projects/${projectId}/stop`);
+    },
+    onSuccess: () => {
       setIsRunning(false);
       toast({
         title: "Project Stopped",
         description: "Project execution stopped",
       });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Stop Failed",
+        description: error.message || "Failed to stop project",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const handleRun = () => {
+    if (isRunning) {
+      stopProjectMutation.mutate();
     } else {
       runProjectMutation.mutate();
     }

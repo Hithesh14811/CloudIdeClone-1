@@ -4,6 +4,7 @@ import { usePreview } from "@/hooks/usePreview";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RefreshCw, ExternalLink, Play, Globe } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
 
 interface PreviewPanelProps {
   projectId?: string;
@@ -36,9 +37,17 @@ export default function PreviewPanel({ projectId }: PreviewPanelProps) {
     }
   };
 
-  const handleStartPreview = () => {
+  const handleStartPreview = async () => {
     if (projectId && user) {
-      startPreview(projectId, (user as any).id || "anonymous");
+      try {
+        const response = await apiRequest('POST', `/api/projects/${projectId}/run`);
+        if (response.previewUrl) {
+          // Use the preview URL from the response
+          window.location.reload(); // Refresh to get updated preview state
+        }
+      } catch (error) {
+        console.error('Failed to start preview:', error);
+      }
     }
   };
 

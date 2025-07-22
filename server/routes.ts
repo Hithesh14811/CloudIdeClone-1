@@ -270,30 +270,55 @@ body {
         return res.status(404).json({ message: "Project not found" });
       }
 
-      // Get project files
-      const files = await storage.getProjectFiles(projectId);
-      
-      // Determine project type
-      const hasPackageJson = files.some(f => f.name === 'package.json');
-      const hasIndexHtml = files.some(f => f.name === 'index.html');
-      const hasPythonFiles = files.some(f => f.name.endsWith('.py'));
-      
-      let projectType: 'html' | 'node' | 'python' = 'html';
-      if (hasPackageJson) {
-        projectType = 'node';
-      } else if (hasPythonFiles && !hasIndexHtml) {
-        projectType = 'python';
-      }
+      // Start preview session
+      const { previewService } = await import("./services/preview");
+      const session = await previewService.createPreviewSession(
+        projectId.toString(), 
+        userId
+      );
 
       res.json({
         message: "Project execution started",
-        projectType,
-        files: files.length,
+        projectId,
+        previewUrl: session.previewUrl,
+        sessionId: session.id,
         timestamp: new Date().toISOString()
       });
     } catch (error) {
       console.error("Error running project:", error);
       res.status(500).json({ message: "Failed to run project" });
+    }
+  });
+
+  app.post("/api/projects/:id/stop", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const projectId = parseInt(req.params.id);
+      
+      // Verify project ownership
+      const project = await storage.getProject(projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      // Stop all preview sessions for this project
+      const { previewService } = await import("./services/preview");
+      const sessions = previewService.getAllSessions().filter(
+        s => s.projectId === projectId.toString() && s.userId === userId
+      );
+
+      for (const session of sessions) {
+        await previewService.destroyPreviewSession(session.id);
+      }
+
+      res.json({
+        message: "Project execution stopped",
+        projectId,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error("Error stopping project:", error);
+      res.status(500).json({ message: "Failed to stop project" });
     }
   });
 
