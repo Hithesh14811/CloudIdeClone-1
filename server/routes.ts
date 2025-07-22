@@ -297,6 +297,60 @@ body {
     }
   });
 
+  // Preview proxy route to handle iframe access
+  app.get("/api/preview/:sessionId/*", async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const filePath = (req.params as any)[0] || '';
+      
+      // Find the preview session
+      const { getPreviewSession } = await import("./services/preview");
+      const session = getPreviewSession(sessionId);
+      
+      if (!session) {
+        return res.status(404).json({ message: "Preview session not found" });
+      }
+
+      // Proxy the request to the preview server
+      const fetch = (await import('node-fetch')).default;
+      const previewUrl = `http://localhost:${session.port}/${filePath}`;
+      
+      try {
+        const response = await fetch(previewUrl);
+        const content = await response.text();
+        
+        // Set appropriate headers
+        res.set({
+          'Content-Type': response.headers.get('content-type') || 'text/html',
+          'X-Frame-Options': 'SAMEORIGIN',
+          'Access-Control-Allow-Origin': '*'
+        });
+        
+        res.send(content);
+      } catch (fetchError) {
+        res.status(503).send(`
+          <html>
+            <body style="font-family: system-ui; padding: 2rem; text-align: center;">
+              <h2>Preview Not Available</h2>
+              <p>The preview server is starting up. Please wait a moment and refresh.</p>
+              <button onclick="location.reload()">Refresh</button>
+            </body>
+          </html>
+        `);
+      }
+    } catch (error) {
+      console.error("Preview proxy error:", error);
+      res.status(500).json({ message: "Preview proxy error" });
+    }
+  });
+
+  // Handle root preview path
+  app.get("/api/preview/:sessionId", (req, res, next) => {
+    req.url = req.url + '/';
+    (req.params as any)[0] = '';
+    next();
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

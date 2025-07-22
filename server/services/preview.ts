@@ -140,8 +140,8 @@ class PreviewService {
       });
     });
 
-    // Use the actual host for the preview URL to ensure iframe can access it
-    const previewUrl = `http://localhost:${port}`;
+    // Use proxy URL to avoid CORS issues with iframe
+    const previewUrl = `http://localhost:5000/api/preview/${sessionId}`;
 
     const session: PreviewSession = {
       id: sessionId,
@@ -209,4 +209,8 @@ export async function updatePreviewFiles(projectId: string, userId: string): Pro
       console.error('Error updating preview files:', error);
     }
   }
+}
+
+export function getPreviewSession(sessionId: string): PreviewSession | undefined {
+  return previewService.getSession(sessionId);
 }
