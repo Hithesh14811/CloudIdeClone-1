@@ -59,7 +59,7 @@ export default function IDE({ projectId }: IDEProps) {
       <TopNavBar projectName={currentProject?.name} />
       
       <div className="flex-1 flex overflow-hidden">
-        <FileExplorer />
+        <FileExplorer projectId={projectId} />
         
         <div className="flex-1 flex flex-col">
           <TabBar />

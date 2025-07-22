@@ -9,13 +9,20 @@ import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { File as FileType } from "@shared/schema";
 
-export default function FileExplorer() {
+interface FileExplorerProps {
+  projectId?: string;
+}
+
+export default function FileExplorer({ projectId }: FileExplorerProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { currentProject, openFile, currentFile } = useIDE();
+  const { currentProject, openFile, currentFile } = useIDE(projectId);
   const [expandedFolders, setExpandedFolders] = useState<Set<number>>(new Set());
   const [creatingItem, setCreatingItem] = useState<{ type: 'file' | 'folder'; parentId?: number } | null>(null);
   const [newItemName, setNewItemName] = useState("");
+  
+  // Debug logging
+  console.log('FileExplorer: projectId:', projectId, 'currentProject:', currentProject);
   
   const { data: files, isLoading } = useQuery<FileType[]>({
     queryKey: ["/api/projects", currentProject?.id, "files"],

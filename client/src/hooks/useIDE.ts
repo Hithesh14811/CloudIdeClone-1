@@ -35,7 +35,9 @@ export function useIDE(projectId?: string) {
 
   // Set current project when project data is loaded
   useEffect(() => {
+    console.log('useIDE: project data changed:', project);
     if (project) {
+      console.log('useIDE: setting current project:', project);
       setCurrentProject(project as Project);
     }
   }, [project]);
