@@ -7,6 +7,7 @@ import { tmpdir } from 'os';
 import { platform } from 'os';
 import { execSync } from 'child_process';
 import { FileWatcher } from '../services/fileWatcher';
+import { FileSync } from '../services/fileSync';
 
 interface TerminalSession {
   id: string;
@@ -16,6 +17,7 @@ interface TerminalSession {
   ptyProcess: pty.IPty;
   socketId: string;
   fileWatcher?: FileWatcher;
+  fileSync?: FileSync;
 }
 
 const terminalSessions = new Map<string, TerminalSession>();
@@ -110,8 +112,9 @@ export function setupTerminalSocket(io: SocketIOServer) {
           return;
         }
 
-        // Create file watcher for this project
+        // Create file watcher and file sync for this project
         const fileWatcher = new FileWatcher(socket, workingDir, projectId);
+        const fileSync = new FileSync(parseInt(projectId), workingDir);
         fileWatcher.start();
 
         const session: TerminalSession = {
@@ -121,7 +124,8 @@ export function setupTerminalSocket(io: SocketIOServer) {
           workingDir,
           ptyProcess,
           socketId: socket.id,
-          fileWatcher
+          fileWatcher,
+          fileSync
         };
         
         terminalSessions.set(sessionId, session);
@@ -129,11 +133,23 @@ export function setupTerminalSocket(io: SocketIOServer) {
         // Handle PTY output with buffering for better performance
         let outputBuffer = '';
         let flushTimeout: NodeJS.Timeout | null = null;
+        let syncTimeout: NodeJS.Timeout | null = null;
         
         const flushOutput = () => {
           if (outputBuffer.length > 0) {
             socket.emit('terminal:output', outputBuffer);
             outputBuffer = '';
+            
+            // Trigger file sync after terminal output (debounced)
+            if (syncTimeout) clearTimeout(syncTimeout);
+            syncTimeout = setTimeout(() => {
+              fileSync.syncWorkspaceToDatabase().then(() => {
+                console.log(`Files synced for project ${projectId}`);
+                socket.emit('files:changed', { projectId: parseInt(projectId) });
+              }).catch(err => {
+                console.error('File sync error:', err);
+              });
+            }, 3000); // Wait 3 seconds after last output
           }
           flushTimeout = null;
         };
@@ -161,10 +177,13 @@ export function setupTerminalSocket(io: SocketIOServer) {
           console.log(`Terminal ${sessionId} exited with code ${code}`);
           socket.emit('terminal:exit', { code: code || 0 });
           
-          // Clean up file watcher
+          // Clean up file watcher and sync
           const session = terminalSessions.get(sessionId);
           if (session?.fileWatcher) {
             session.fileWatcher.stop();
+          }
+          if (session?.fileSync) {
+            session.fileSync.cleanup();
           }
           
           terminalSessions.delete(sessionId);
