@@ -21,9 +21,16 @@ export function useIDE(projectId?: string) {
   });
 
   // Fetch specific project if projectId is provided
-  const { data: project } = useQuery({
+  const { data: project, error: projectError } = useQuery({
     queryKey: ["/api/projects", projectId],
     enabled: !!projectId,
+    retry: (failureCount, error) => {
+      // Don't retry on 401 errors (authentication issues)
+      if (error?.message?.includes('401')) {
+        return false;
+      }
+      return failureCount < 2;
+    },
   });
 
   // Set current project when project data is loaded
@@ -32,6 +39,14 @@ export function useIDE(projectId?: string) {
       setCurrentProject(project as Project);
     }
   }, [project]);
+
+  // Handle authentication errors
+  useEffect(() => {
+    if (projectError?.message?.includes('401')) {
+      // Redirect to login if authentication failed
+      window.location.href = '/api/login';
+    }
+  }, [projectError]);
 
   // File update mutation
   const updateFileMutation = useMutation({

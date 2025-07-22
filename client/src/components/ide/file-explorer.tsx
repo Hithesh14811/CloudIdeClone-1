@@ -285,8 +285,38 @@ export default function FileExplorer() {
 
   if (!currentProject) {
     return (
-      <div className="w-64 bg-slate-800 border-r border-slate-700 flex items-center justify-center">
-        <p className="text-gray-400 text-sm">No project selected</p>
+      <div className="w-64 bg-slate-800 border-r border-slate-700 flex flex-col">
+        <div className="p-3 border-b border-slate-700">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-medium text-gray-200">Files</h3>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 text-gray-400 hover:text-gray-200 hover:bg-slate-700"
+                  title="File Actions"
+                  disabled
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+            </DropdownMenu>
+          </div>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center text-gray-400">
+            <p className="text-sm mb-2">No project selected</p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-blue-400 hover:text-blue-300"
+              onClick={() => window.location.href = '/'}
+            >
+              Go to Dashboard
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }
