@@ -24,7 +24,8 @@ const terminalSessions = new Map<string, TerminalSession>();
 
 // Helper function to get FileSync instance for a project
 export function getFileSyncForProject(projectId: string, userId: string): FileSync | null {
-  for (const session of terminalSessions.values()) {
+  const sessionsArray = Array.from(terminalSessions.values());
+  for (const session of sessionsArray) {
     if (session.projectId === projectId && session.userId === userId && session.fileSync) {
       return session.fileSync;
     }
