@@ -151,7 +151,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
         setShowLoadingIndicator(false);
         // Silent refetch for socket updates
         refetch();
-        // Keep expanded folders as they are for socket updates too
+        setExpandedFolders(new Set([0])); // Reset to root expanded only
       }
     };
 
@@ -182,8 +182,8 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
           setShowLoadingIndicator(false);
           // Silent refetch without invalidating cache completely
           refetch();
-          // Keep expanded folders as they are - don't reset during auto-refresh
-          // Only clear selections to avoid confusion
+          // Reset expanded folders and selections for clean state
+          setExpandedFolders(new Set([0])); // Reset to root expanded only
           setSelectedFiles(new Set()); // Clear selections
         }
       }, 2000); // Refresh every 2 seconds

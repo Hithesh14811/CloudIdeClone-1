@@ -158,6 +158,5 @@ The architecture prioritizes developer experience with hot reloading, type safet
   - Auto-refresh, manual refresh, and socket updates happen silently without visual interruption
   - File tree still refreshes every 2 seconds but users don't see any loading state
   - Maintains responsive feel while keeping background sync functionality
-  - Preserves folder expansion state during auto-refresh to avoid folder collapse
-- **Result**: File tree updates seamlessly without disruptive loading messages or closing folders
-- **Status**: ✓ Silent refresh implemented, ✓ User experience improved, ✓ Background sync maintained, ✓ Folder states preserved
+- **Result**: File tree updates seamlessly without disruptive loading messages every 2 seconds
+- **Status**: ✓ Silent refresh implemented, ✓ User experience improved, ✓ Background sync maintained
