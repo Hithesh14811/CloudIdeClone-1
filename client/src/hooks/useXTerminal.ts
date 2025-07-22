@@ -138,10 +138,12 @@ export function useXTerminal(): XTerminalHook {
   }, [socket, terminal, sessionId]);
 
   const startTerminal = useCallback((projectId: string, userId: string) => {
-    if (socket && !isConnected && terminal) {
+    if (socket && terminal && !sessionId) {
+      setIsConnected(false);
+      setIsReady(false);
       socket.emit('terminal:start', { projectId, userId });
     }
-  }, [socket, isConnected, terminal]);
+  }, [socket, terminal, sessionId]);
 
   const stopTerminal = useCallback(() => {
     if (socket && sessionId) {

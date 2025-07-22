@@ -5,6 +5,7 @@ import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { platform } from 'os';
+import { execSync } from 'child_process';
 
 interface TerminalSession {
   id: string;
@@ -41,23 +42,51 @@ export function setupTerminalSocket(io: SocketIOServer) {
           }
         }
         
-        // Determine shell based on platform
-        const shell = platform() === 'win32' ? 'powershell.exe' : 'bash';
-        const args = platform() === 'win32' ? [] : [];
-
-        // Create PTY process
-        const ptyProcess = pty.spawn(shell, args, {
-          name: 'xterm-color',
-          cols: 80,
-          rows: 24,
-          cwd: workingDir,
-          env: {
-            ...process.env,
-            TERM: 'xterm-256color',
-            PATH: process.env.PATH,
-            HOME: workingDir,
+        // Determine shell based on platform and availability
+        let shell = 'sh'; // Default fallback
+        let args: string[] = [];
+        
+        if (platform() === 'win32') {
+          shell = 'powershell.exe';
+          args = [];
+        } else {
+          // Try to find the best shell
+          try {
+            execSync('which bash', { stdio: 'ignore' });
+            shell = 'bash';
+          } catch {
+            try {
+              execSync('which sh', { stdio: 'ignore' });
+              shell = 'sh';
+            } catch {
+              throw new Error('No shell found');
+            }
           }
-        });
+        }
+
+        console.log(`Starting terminal with shell: ${shell}`);
+
+        // Create PTY process with error handling
+        let ptyProcess;
+        try {
+          ptyProcess = pty.spawn(shell, args, {
+            name: 'xterm-color',
+            cols: 80,
+            rows: 24,
+            cwd: workingDir,
+            env: {
+              ...process.env,
+              TERM: 'xterm-256color',
+              PATH: process.env.PATH,
+              HOME: process.env.HOME || workingDir,
+              SHELL: shell,
+            }
+          });
+        } catch (spawnError) {
+          console.error('Failed to spawn PTY process:', spawnError);
+          socket.emit('terminal:error', { message: `Failed to start shell: ${shell}` });
+          return;
+        }
 
         const session: TerminalSession = {
           id: sessionId,
@@ -76,9 +105,10 @@ export function setupTerminalSocket(io: SocketIOServer) {
         });
 
         // Handle PTY exit
-        ptyProcess.onExit((code) => {
+        ptyProcess.onExit((exitCode) => {
+          const code = typeof exitCode === 'object' ? exitCode.exitCode : exitCode;
           console.log(`Terminal ${sessionId} exited with code ${code}`);
-          socket.emit('terminal:exit', { code });
+          socket.emit('terminal:exit', { code: code || 0 });
           terminalSessions.delete(sessionId);
         });
 

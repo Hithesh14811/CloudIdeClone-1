@@ -11,7 +11,7 @@ interface XTerminalProps {
 
 export default function XTerminal({ projectId }: XTerminalProps) {
   const { user } = useAuth();
-  const { terminal, isConnected, isReady, startTerminal, stopTerminal, initializeTerminal, resizeTerminal } = useXTerminal();
+  const { terminal, isConnected, isReady, sessionId, startTerminal, stopTerminal, initializeTerminal, resizeTerminal } = useXTerminal();
   const [isMinimized, setIsMinimized] = useState(false);
   const terminalRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -25,10 +25,10 @@ export default function XTerminal({ projectId }: XTerminalProps) {
 
   // Start terminal session when component mounts and terminal is initialized
   useEffect(() => {
-    if (projectId && user && terminal && !isConnected) {
+    if (projectId && user && terminal && !sessionId) {
       startTerminal(projectId, (user as any).id || "anonymous");
     }
-  }, [projectId, user, terminal, isConnected, startTerminal]);
+  }, [projectId, user, terminal, sessionId, startTerminal]);
 
   // Handle window resize
   useEffect(() => {
