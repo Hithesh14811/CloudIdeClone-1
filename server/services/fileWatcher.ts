@@ -71,12 +71,13 @@ export class FileWatcher {
 
     // Listen for changes with throttling to prevent spam
     let updateTimeout: NodeJS.Timeout | null = null;
-    const throttledUpdate = () => {
+    const throttledUpdate = async () => {
       if (updateTimeout) clearTimeout(updateTimeout);
-      updateTimeout = setTimeout(() => {
-        this.sendFileTreeUpdate();
+      updateTimeout = setTimeout(async () => {
+        // First sync filesystem changes to database, then emit updated tree
+        await this.syncAndEmitUpdate();
         updateTimeout = null;
-      }, 100); // Faster throttling for real-time updates - max every 100ms
+      }, 300); // Slightly slower throttling to allow file operations to complete - max every 300ms
     };
 
     this.watcher
@@ -106,24 +107,57 @@ export class FileWatcher {
     }
   }
 
-  sendFileTreeUpdate() {
+  async sendFileTreeUpdate() {
     try {
-      const tree = this.buildFileTree(this.watchPath);
-      if (tree) {
-        this.socket.emit('file-tree-update', {
-          projectId: this.projectId,
-          tree: tree.children || []
-        });
-      }
+      // Get the latest files from database (which includes IDs) instead of building from filesystem
+      const { storage } = await import('../storage');
+      const dbFiles = await storage.getProjectFiles(parseInt(this.projectId));
+      
+      // Convert database files to the format expected by frontend
+      const formattedFiles = dbFiles.map((file: any) => ({
+        id: file.id,
+        name: file.name,
+        type: file.isFolder ? 'folder' : 'file',
+        path: file.path,
+        content: file.content,
+        parentId: file.parentId,
+        children: []
+      }));
+
+      this.socket.emit('file-tree-update', {
+        projectId: this.projectId,
+        files: formattedFiles // Send database files with IDs for proper frontend integration
+      });
+      
+      console.log(`Sent file tree update for project ${this.projectId}: ${formattedFiles.length} files`);
     } catch (error) {
-      console.error('Error building file tree:', error);
+      console.error('Error sending file tree update:', error);
     }
   }
 
   // Manual refresh method for when automatic updates fail
   forceRefresh() {
     console.log(`Force refreshing file tree for project ${this.projectId}`);
-    this.sendFileTreeUpdate();
+    this.syncAndEmitUpdate();
+  }
+  
+  // Sync filesystem changes to database, then emit updated tree
+  async syncAndEmitUpdate() {
+    try {
+      // Import FileSync and sync filesystem to database
+      const { FileSync } = await import('./fileSync');
+      const fileSync = new FileSync(parseInt(this.projectId), this.watchPath);
+      
+      // Sync filesystem changes to database
+      await fileSync.forceSyncNow();
+      
+      // Then emit the updated tree from database
+      await this.sendFileTreeUpdate();
+    } catch (error) {
+      console.error('Error syncing and emitting update:', error);
+      // Fallback to just emitting current database state
+      await this.sendFileTreeUpdate();
+    }
   }
 
   private buildFileTree(dir: string, relativePath: string = ''): FileTreeNode | null {

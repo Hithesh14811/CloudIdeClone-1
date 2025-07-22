@@ -124,8 +124,10 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       }));
     },
     enabled: !!projectId,
-    staleTime: 0, // Always consider data stale for fresh fetches
+    staleTime: Infinity, // Data is always fresh since we update via socket
     gcTime: 5 * 60 * 1000, // Keep data in cache for 5 minutes for better UX
+    refetchOnWindowFocus: false, // Disable refetching on window focus
+    refetchOnReconnect: false, // Disable refetching on reconnect
   });
 
   // Hide loading indicator after first load or when files exist
@@ -138,24 +140,12 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   // Restore expanded state after data refresh
   useEffect(() => {
     if (files.length > 0) {
-      // Debug logging
-      console.log('File data refreshed, restoring expanded state:', Array.from(expandedFolderPathsRef.current));
-      console.log('Available file paths:', files.map(f => f.path));
       // Ensure the state is synced with the ref after data refresh
       setExpandedFolderPaths(new Set(expandedFolderPathsRef.current));
     }
   }, [files]);
 
-  // Set up file tree update receiver
-  useEffect(() => {
-    if (onFileTreeUpdateReceiver) {
-      onFileTreeUpdateReceiver((data: any) => {
-        console.log('File tree update received:', data);
-        // Invalidate and refetch file tree when terminal changes files
-        queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
-      });
-    }
-  }, [onFileTreeUpdateReceiver, queryClient, projectId]);
+  // File tree update receiver disabled - using direct socket updates instead
 
   // Set up socket connection for manual refresh and real-time updates
   useEffect(() => {
@@ -163,14 +153,17 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       socketRef.current = io();
     }
 
-    // Listen for file changes from terminal
+    // Listen for file changes from terminal with new file data format
     const handleFileChanges = (data: any) => {
       console.log('Files changed via socket:', data);
-      if (data.projectId === projectId) {
+      if (data.projectId == projectId && data.files) {
+        console.log('Updating file tree with socket data:', data.files.length, 'files');
         // Keep loading indicator hidden for socket updates too
         setShowLoadingIndicator(false);
-        // Silent refetch for socket updates
-        refetch();
+        
+        // Update React Query cache directly with socket data to avoid API call
+        queryClient.setQueryData(['project-files', projectId], data.files);
+        
         // Keep expanded folders state - no reset needed
       }
     };
@@ -187,37 +180,8 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     };
   }, [projectId, queryClient]);
 
-  // Set up automatic refresh every 2 seconds (paused during user operations)
-  useEffect(() => {
-    const startAutoRefresh = () => {
-      if (autoRefreshRef.current) {
-        clearInterval(autoRefreshRef.current);
-      }
-
-      autoRefreshRef.current = setInterval(() => {
-        // Don't refresh if user is actively creating files or in select mode
-        if (!isUserCreating && !selectMode && !creatingItem.show) {
-          console.log('Auto-refreshing file tree silently...');
-          // Keep loading indicator hidden during auto-refresh
-          setShowLoadingIndicator(false);
-          // Silent refetch without invalidating cache completely
-          refetch();
-          // Keep expanded folders state - no reset needed
-          setSelectedFiles(new Set()); // Clear selections
-        }
-      }, 2000); // Refresh every 2 seconds
-    };
-
-    if (projectId) {
-      startAutoRefresh();
-    }
-
-    return () => {
-      if (autoRefreshRef.current) {
-        clearInterval(autoRefreshRef.current);
-      }
-    };
-  }, [projectId, isUserCreating, selectMode, creatingItem.show]);
+  // Auto-refresh disabled - using real-time socket updates instead
+  // This comment remains as placeholder to show we've removed the polling interval
 
   // Manual refresh function
   const handleManualRefresh = () => {
@@ -439,17 +403,13 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   };
 
   const handleToggleExpand = (nodePath: string) => {
-    console.log('Toggling folder expansion for:', nodePath);
     updateExpandedFolders(prev => {
       const newSet = new Set(prev);
       if (newSet.has(nodePath)) {
-        console.log('Collapsing folder:', nodePath);
         newSet.delete(nodePath);
       } else {
-        console.log('Expanding folder:', nodePath);
         newSet.add(nodePath);
       }
-      console.log('New expanded folders:', Array.from(newSet));
       return newSet;
     });
   };
