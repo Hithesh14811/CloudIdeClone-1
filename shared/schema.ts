@@ -51,8 +51,8 @@ export const files = pgTable("files", {
   path: text("path").notNull(),
   content: text("content").default(""),
   isFolder: boolean("is_folder").default(false),
-  parentId: serial("parent_id").references(() => files.id, { onDelete: "cascade" }),
-  projectId: serial("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  parentId: serial("parent_id"),
+  projectId: serial("project_id").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -78,8 +78,9 @@ export const filesRelations = relations(files, ({ one, many }) => ({
   parent: one(files, {
     fields: [files.parentId],
     references: [files.id],
+    relationName: "fileHierarchy"
   }),
-  children: many(files),
+  children: many(files, { relationName: "fileHierarchy" }),
 }));
 
 // Schemas

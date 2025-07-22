@@ -12,7 +12,7 @@ export default function FileExplorer() {
   const queryClient = useQueryClient();
   const { currentProject, openFile, currentFile, setShowCreateModal } = useIDE();
   
-  const { data: files, isLoading } = useQuery({
+  const { data: files, isLoading } = useQuery<FileType[]>({
     queryKey: ["/api/projects", currentProject?.id, "files"],
     enabled: !!currentProject,
   });
@@ -126,7 +126,7 @@ export default function FileExplorer() {
         ) : (
           <div className="p-2">
             <div className="space-y-0.5">
-              {files?.map((file: FileType) => (
+              {(files || []).map((file: FileType) => (
                 <div
                   key={file.id}
                   className={`flex items-center px-2 py-1 rounded text-sm cursor-pointer transition-colors ${

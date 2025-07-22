@@ -27,10 +27,11 @@ export default function TopNavBar() {
   };
 
   const getUserInitials = () => {
-    if (user?.firstName && user?.lastName) {
-      return `${user.firstName[0]}${user.lastName[0]}`.toUpperCase();
+    const userData = user as any;
+    if (userData?.firstName && userData?.lastName) {
+      return `${userData.firstName[0]}${userData.lastName[0]}`.toUpperCase();
     }
-    return user?.email?.[0]?.toUpperCase() || "U";
+    return userData?.email?.[0]?.toUpperCase() || "U";
   };
 
   return (
@@ -111,13 +112,13 @@ export default function TopNavBar() {
 
         <div className="flex items-center space-x-2 ml-4">
           <Avatar className="w-7 h-7">
-            <AvatarImage src={user?.profileImageUrl || ""} />
+            <AvatarImage src={(user as any)?.profileImageUrl || ""} />
             <AvatarFallback className="bg-blue-500 text-white text-xs">
               {getUserInitials()}
             </AvatarFallback>
           </Avatar>
           <span className="text-sm text-gray-400">
-            {user?.firstName || user?.email}
+            {(user as any)?.firstName || (user as any)?.email}
           </span>
           <Button
             variant="ghost"

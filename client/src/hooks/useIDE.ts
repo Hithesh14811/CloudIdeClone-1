@@ -27,7 +27,7 @@ export function useIDE() {
 
   // Auto-select first project if available
   useState(() => {
-    if (projects && projects.length > 0 && !currentProject) {
+    if (projects && Array.isArray(projects) && projects.length > 0 && !currentProject) {
       setCurrentProject(projects[0]);
     }
   });
