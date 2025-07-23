@@ -357,7 +357,12 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
 
   const handleSelectAll = () => {
     const allFileIds = files.map((f: FileNode) => f.id);
+    console.log('Select All clicked - Total files:', files.length, 'File IDs:', allFileIds);
     setSelectedFiles(new Set(allFileIds));
+    toast({
+      title: 'Selected All Files',
+      description: `${allFileIds.length} files selected`
+    });
   };
 
   const handleDeselectAll = () => {
