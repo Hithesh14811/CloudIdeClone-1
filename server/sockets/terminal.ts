@@ -162,7 +162,7 @@ export function setupTerminalSocket(io: SocketIOServer) {
               }).catch(err => {
                 console.error('File sync error:', err);
               });
-            }, 1000); // Wait 1 second after last output for faster updates
+            }, 500); // Faster sync - wait 0.5 second after last output
           }
           flushTimeout = null;
         };

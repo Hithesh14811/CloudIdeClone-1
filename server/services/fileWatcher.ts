@@ -27,40 +27,36 @@ export class FileWatcher {
       this.stop();
     }
 
-    // Watch the directory for changes with aggressive filtering to avoid system limits
+    // Watch the directory for changes with optimized settings for real-time updates
     this.watcher = chokidar.watch(this.watchPath, {
       ignored: [
         /(^|[\/\\])\../, // ignore dotfiles
-        '**/node_modules/**', // ignore node_modules completely
+        '**/node_modules/**/node_modules/**', // ignore nested node_modules only
         '**/\.git/**', // ignore git
         '**/*~', // ignore temp files
         '**/tmp/**', // ignore tmp directories
         '**/*.tmp', // ignore tmp files
-        '**/dist/**', // ignore build directories
-        '**/build/**', // ignore build directories
         '**/coverage/**', // ignore coverage
         '**/.next/**', // ignore Next.js build
         '**/.nuxt/**', // ignore Nuxt build
-        '**/out/**', // ignore output directories
         '**/*.log', // ignore log files
         '**/logs/**', // ignore log directories
         '**/.cache/**', // ignore cache directories
         '**/vendor/**', // ignore vendor directories
-        '**/public/static/**', // ignore static build assets
       ],
       persistent: true,
       ignoreInitial: true, // Don't scan initial files, reduces load
-      depth: 5, // Limit depth more aggressively
+      depth: 10, // Increased depth to catch more nested structures
       awaitWriteFinish: {
-        stabilityThreshold: 200, // Faster detection of file operations
-        pollInterval: 100
+        stabilityThreshold: 50, // Much faster detection for real-time updates
+        pollInterval: 25
       },
       followSymlinks: false,
       ignorePermissionErrors: true,
       atomic: true,
       usePolling: false, // Use native file system events for better performance
-      interval: 1000, // Polling interval if usePolling is true
-      binaryInterval: 3000, // Polling for binary files
+      interval: 500, // Faster polling if needed
+      binaryInterval: 1000, // Faster polling for binary files
       alwaysStat: false // Don't stat files unless needed
     });
 
@@ -69,22 +65,34 @@ export class FileWatcher {
       this.sendFileTreeUpdate();
     }, 100);
 
-    // Listen for changes with throttling to prevent spam
+    // Listen for changes with minimal throttling for maximum real-time response
     let updateTimeout: NodeJS.Timeout | null = null;
     const throttledUpdate = () => {
       if (updateTimeout) clearTimeout(updateTimeout);
       updateTimeout = setTimeout(() => {
         this.sendFileTreeUpdate();
         updateTimeout = null;
-      }, 100); // Faster throttling for real-time updates - max every 100ms
+      }, 25); // Ultra-fast throttling for real-time updates - max every 25ms
     };
 
     this.watcher
-      .on('add', throttledUpdate)
-      .on('addDir', throttledUpdate)
+      .on('add', (path) => {
+        console.log('File added:', path);
+        throttledUpdate();
+      })
+      .on('addDir', (path) => {
+        console.log('Directory added:', path);
+        throttledUpdate();
+      })
       .on('change', throttledUpdate)
-      .on('unlink', throttledUpdate)
-      .on('unlinkDir', throttledUpdate)
+      .on('unlink', (path) => {
+        console.log('File removed:', path);
+        throttledUpdate();
+      })
+      .on('unlinkDir', (path) => {
+        console.log('Directory removed:', path);
+        throttledUpdate();
+      })
       .on('error', (error: any) => {
         // Handle ENOSPC errors gracefully
         if (error?.code === 'ENOSPC') {

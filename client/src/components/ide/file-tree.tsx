@@ -163,10 +163,10 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     // Listen for file changes from terminal
     const handleFileChanges = (data: any) => {
       console.log('Files changed via socket:', data);
-      if (data.projectId === projectId) {
+      if (data.projectId === projectId || parseInt(data.projectId) === projectId) {
         // Keep loading indicator hidden for socket updates too
         setShowLoadingIndicator(false);
-        // Force complete refresh immediately
+        // Force complete refresh immediately for ultra-fast updates
         setRefreshKey(prev => prev + 1);
         // Keep expanded folders intact during socket updates too
         // Don't reset expandedFolders to preserve user state
