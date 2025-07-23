@@ -118,7 +118,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       }));
     },
     enabled: !!projectId,
-    staleTime: 1000 * 30, // Reduced cache time for more responsive updates
+    staleTime: 0, // No cache time - always fetch fresh data
     gcTime: 1000 * 60 * 2, // Reduced garbage collection time
     refetchOnWindowFocus: false, // Don't refetch on window focus
     select: (data) => {
@@ -184,8 +184,8 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       if (targetProjectId === projectId || String(targetProjectId) === String(projectId)) {
         // Keep loading indicator hidden for socket updates
         setShowLoadingIndicator(false);
-        // Force complete refresh for instant progressive updates
-        setRefreshKey(prev => prev + 1);
+        // Force immediate query invalidation and refetch
+        queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
         // Preserve expanded folder state during updates
       }
     };
@@ -201,8 +201,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       socket.off('files:updated', handleFileUpdates);
       socket.off('file-tree-update', handleFileUpdates);
       socket.off('files:changed', handleFileUpdates);
-      socket.disconnect();
-      socketRef.current = null;
+      // Don't disconnect socket immediately - let it persist for better performance
     };
   }, [projectId, queryClient]);
 
