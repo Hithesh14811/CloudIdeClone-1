@@ -217,14 +217,40 @@ export class FileSync {
               isFolder: true
             });
 
-            // Special handling for node_modules - show as folder but don't recurse into it
+            // Special handling for node_modules - show top-level packages but don't go deep
             if (item === 'node_modules') {
-              // Don't recurse into node_modules to avoid performance issues
-              console.log(`Found node_modules at ${itemRelativePath}, adding as folder to database`);
+              console.log(`Found node_modules at ${itemRelativePath}, scanning first level only`);
+              // Only scan immediate children of node_modules (first level packages)
+              try {
+                const nodeModulesItems = fs.readdirSync(fullPath);
+                for (const pkg of nodeModulesItems.slice(0, 50)) { // Limit to first 50 packages
+                  if (pkg.startsWith('.')) continue; // Skip hidden files
+                  
+                  const pkgPath = path.join(fullPath, pkg);
+                  const pkgRelativePath = path.join(itemRelativePath, pkg).replace(/\\/g, '/');
+                  
+                  try {
+                    const pkgStats = fs.lstatSync(pkgPath);
+                    if (pkgStats.isDirectory()) {
+                      results.push({
+                        name: pkg,
+                        path: pkgRelativePath.startsWith('/') ? pkgRelativePath : `/${pkgRelativePath}`,
+                        content: null,
+                        isFolder: true
+                      });
+                    }
+                  } catch (pkgError) {
+                    // Skip problematic packages
+                    continue;
+                  }
+                }
+              } catch (error) {
+                console.error(`Error scanning node_modules: ${error}`);
+              }
             } else {
               // Recursively scan subdirectory (with depth limit)
               const depth = relativePath.split('/').length;
-              if (depth < 10) { // Limit recursion depth
+              if (depth < 8) { // Reduced depth limit for performance
                 const childResults = await this.scanDirectory(fullPath, itemRelativePath);
                 results.push(...childResults);
               }
@@ -344,6 +370,7 @@ export class FileSync {
       clearTimeout(this.deleteTimeout);
       this.deleteTimeout = null;
     }
+    this.recentlyDeleted.clear();
     console.log(`FileSync cleanup completed for project ${this.projectId}`);
   }
 
@@ -399,18 +426,5 @@ export class FileSync {
     }, 30000); // 30 seconds
   }
 
-  // Cleanup
-  cleanup(): void {
-    if (this.syncTimeout) {
-      clearTimeout(this.syncTimeout);
-      this.syncTimeout = null;
-    }
 
-    if (this.deleteTimeout) {
-      clearTimeout(this.deleteTimeout);
-      this.deleteTimeout = null;
-    }
-
-    this.recentlyDeleted.clear();
-  }
 }
