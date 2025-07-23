@@ -277,7 +277,8 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       return response;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+      setRefreshKey(prev => prev + 1);
+      setPreviousFiles([]);
       toast({
         title: 'Success',
         description: 'Item deleted successfully'
@@ -330,8 +331,9 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       });
     },
     onSuccess: (deletedIds: number[]) => {
-      // Invalidate and refetch to ensure consistency
-      queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+      // Force complete refresh instead of invalidateQueries
+      setRefreshKey(prev => prev + 1);
+      setPreviousFiles([]);
       
       // Show success message with count
       toast({

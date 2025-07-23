@@ -1,0 +1,106 @@
+Issue #1: File tree does not update after running commands in terminal
+🧠 Cause:
+While you do emit file-tree-update from the terminal, your frontend handler is improperly wired. Here's the broken logic:
+
+tsx
+Copy
+Edit
+// IDE.tsx
+const handleTerminalFileTreeUpdate = useCallback((callback: (data: any) => void) => {
+  if (fileTreeUpdateCallback) {
+    callback(fileTreeUpdateCallback); // ❌ This just calls callback, not fileTreeUpdateCallback!
+  }
+}, [fileTreeUpdateCallback]);
+It should invoke fileTreeUpdateCallback with the emitted data.
+
+✅ Fix:
+🔧 Step 1: Fix handleTerminalFileTreeUpdate in ide.tsx
+Replace:
+
+ts
+Copy
+Edit
+callback(fileTreeUpdateCallback);
+With:
+
+ts
+Copy
+Edit
+fileTreeUpdateCallback?.(callback);
+This ensures that when the terminal sends an update, the FileTree component refetches.
+
+🔧 Step 2: (Optional) Better: use socket broadcast directly in backend
+Emit file-tree-update from the backend’s terminal command execution handler with project ID. You already use:
+
+ts
+Copy
+Edit
+socket.emit("file-tree-update", { projectId });
+Just ensure it’s emitted after create-react-app completes and not too early.
+
+✅ Issue #2: Files not disappearing from file tree after deletion (even with success toast)
+🧠 Cause:
+Your delete API call works, and your react-query cache is invalidated correctly. However:
+
+queryClient.invalidateQueries(...) just marks the query stale.
+
+You do not wait for refetch to complete, so UI keeps stale data.
+
+Worse: useQuery() does not automatically re-render unless data array actually changes length.
+
+✅ Fixes:
+🔧 Step 1: Force full refresh after deletion
+Inside onSuccess of your bulk delete mutation, instead of:
+
+ts
+Copy
+Edit
+queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+Add:
+
+ts
+Copy
+Edit
+setRefreshKey(prev => prev + 1); // Triggers complete reload
+The refreshKey is already part of your query key:
+
+ts
+Copy
+Edit
+queryKey: ['project-files', projectId, refreshKey]
+So it’ll re-render forcefully when refreshKey changes.
+
+Also update onSuccess of single delete mutation similarly.
+
+✅ Bonus Fix: Avoid stale renders if useQuery() returns same list
+Right now, files.length > 0 ? files : previousFiles is used.
+
+But sometimes React won't re-render because shallow compare sees the same object identity. After you call refetch(), you should force a minimal UI invalidation.
+
+You can improve that by replacing:
+
+ts
+Copy
+Edit
+setRefreshKey(prev => prev + 1);
+with:
+
+ts
+Copy
+Edit
+setRefreshKey(prev => prev + 1);
+setPreviousFiles([]); // ensures rerender
+✅ Summary of All Fixes
+Problem	Fix
+Terminal changes don’t update file tree	Fix handleTerminalFileTreeUpdate() call in ide.tsx
+File deletions not reflected	Replace invalidateQueries() with setRefreshKey(prev => prev + 1)
+Real-time experience lacking	Ensure file-tree-update is emitted from backend after any file mutation
+
+🚀 Bonus: Emitting changes from backend
+If your terminal script (e.g. create-react-app) modifies files server-side, consider calling:
+
+ts
+Copy
+Edit
+io.emit("file-tree-update", { projectId });
+right after file operations (like after file extraction or folder creation), from the Node backend.

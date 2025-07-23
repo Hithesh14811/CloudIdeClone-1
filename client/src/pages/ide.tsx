@@ -107,7 +107,7 @@ export default function IDE({ projectId }: IDEProps) {
 
   const handleTerminalFileTreeUpdate = useCallback((callback: (data: any) => void) => {
     if (fileTreeUpdateCallback) {
-      callback(fileTreeUpdateCallback);
+      fileTreeUpdateCallback(callback);
     }
   }, [fileTreeUpdateCallback]);
 

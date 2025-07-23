@@ -199,3 +199,21 @@ The architecture prioritizes developer experience with hot reloading, type safet
   - Graceful degradation if database temporarily unavailable
 - **Result**: Server now starts successfully with stable database connectivity
 - **Status**: ✓ Server running on port 5000, ✓ Database connected, ✓ WebSocket issues resolved, ✓ Application fully operational
+
+### January 23, 2025 - File Tree Real-time Update Issues Fixed
+- **Issue 1**: Terminal commands (like create-react-app) not immediately updating file tree, requiring manual refresh
+- **Issue 2**: File/folder deletions showing success messages but files remaining visible until refresh
+- **Root Cause**: 
+  - Broken callback logic in `handleTerminalFileTreeUpdate` function
+  - React Query cache invalidation not forcing UI re-renders for deletions
+- **Resolution**: 
+  - Fixed `handleTerminalFileTreeUpdate` in `ide.tsx` to properly invoke `fileTreeUpdateCallback`
+  - Replaced `queryClient.invalidateQueries()` with `setRefreshKey(prev => prev + 1)` in both single and bulk delete mutations
+  - Added `setPreviousFiles([])` to ensure complete UI refresh after deletions
+- **Features**:
+  - Immediate file tree updates when terminal creates/modifies files
+  - Instant file tree refresh after successful deletions (single and bulk)
+  - Forced UI re-renders using refreshKey increment mechanism
+  - Preserved optimistic updates during deletion operations
+- **Result**: File tree now updates immediately for both terminal operations and deletions without requiring manual refresh
+- **Status**: ✓ Terminal file sync working, ✓ Deletion UI updates instant, ✓ Real-time file tree synchronization complete
