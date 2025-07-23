@@ -30,9 +30,9 @@ export class FileWatcher {
     // Watch the directory for changes with progressive file creation support
     this.watcher = chokidar.watch(this.watchPath, {
       ignored: [
-        /(^|[\/\\])\../, // ignore dotfiles but allow .gitignore
-        '!**/.gitignore', // allow .gitignore files  
-        '**/node_modules/**/node_modules/**', // ignore nested node_modules only
+        /(^|[\/\\])\../, // ignore dotfiles
+        '**/node_modules/**', // ignore node_modules subdirectories for performance
+        '!node_modules', // but allow the root node_modules folder itself
         '**/\.git/**', // ignore git
         '**/*~', // ignore temp files
         '**/tmp/**', // ignore tmp directories
@@ -44,13 +44,15 @@ export class FileWatcher {
         '**/logs/**', // ignore log directories
         '**/.cache/**', // ignore cache directories
         '**/vendor/**', // ignore vendor directories
+        '**/dist/**', // ignore build directories
+        '**/build/**', // ignore build directories
       ],
       persistent: true,
       ignoreInitial: true, // Don't scan initial files
       depth: 10, // Optimized depth for performance vs visibility
       awaitWriteFinish: {
-        stabilityThreshold: 10, // Even faster detection for create-react-app
-        pollInterval: 3 // Ultra-fast polling for immediate detection
+        stabilityThreshold: 15, // Ultra-fast detection for progressive updates
+        pollInterval: 5 // Very fast polling for immediate detection
       },
       followSymlinks: false,
       ignorePermissionErrors: true,
@@ -173,14 +175,13 @@ export class FileWatcher {
         return tree; // Return empty folder instead of null
       }
 
-      // Filter out problematic items (but allow node_modules folder itself)
+      // Filter out problematic items (node_modules, .git, tmp files, etc.)
       const filteredItems = items.filter(item => {
         // Skip hidden files and directories
         if (item.startsWith('.')) return false;
 
-        // Allow node_modules folder itself (but we won't recurse into it deeply)
-        // This will show node_modules as a single folder in the tree
-        if (item === 'node_modules') return true;
+        // Skip node_modules to avoid symlink issues
+        if (item === 'node_modules') return false;
 
         // Skip temporary files
         if (item.startsWith('tmp') || item.includes('~')) return false;
@@ -219,20 +220,9 @@ export class FileWatcher {
       folders.sort().forEach(folder => {
         const folderPath = path.join(dir, folder);
         const folderRelativePath = path.join(relativePath, folder);
-        
-        // Special handling for node_modules - show as folder but don't recurse deeply
-        if (folder === 'node_modules') {
-          tree.children!.push({
-            name: folder,
-            type: 'folder',
-            path: folderRelativePath,
-            children: [] // Empty children to avoid deep recursion
-          });
-        } else {
-          const subtree = this.buildFileTree(folderPath, folderRelativePath);
-          if (subtree) {
-            tree.children!.push(subtree);
-          }
+        const subtree = this.buildFileTree(folderPath, folderRelativePath);
+        if (subtree) {
+          tree.children!.push(subtree);
         }
       });
 

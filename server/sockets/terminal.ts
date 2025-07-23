@@ -175,7 +175,7 @@ export function setupTerminalSocket(io: SocketIOServer) {
               }).catch(err => {
                 console.error('File sync error:', err);
               });
-            }, 100); // Ultra-fast sync - wait 0.1 second after last output for create-react-app
+            }, 500); // Faster sync - wait 0.5 second after last output
           }
           flushTimeout = null;
         };

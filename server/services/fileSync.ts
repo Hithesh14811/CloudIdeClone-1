@@ -189,13 +189,7 @@ export class FileSync {
       for (const item of items) {
         // Skip problematic directories and files
         if (this.shouldSkipItem(item)) {
-          console.log(`Skipping item: ${item}`);
           continue;
-        }
-        
-        // Debug logging for node_modules
-        if (item === 'node_modules') {
-          console.log(`Processing node_modules in scanDirectory at ${dir}`);
         }
 
         const fullPath = path.join(dir, item);
@@ -217,43 +211,11 @@ export class FileSync {
               isFolder: true
             });
 
-            // Special handling for node_modules - show top-level packages but don't go deep
-            if (item === 'node_modules') {
-              console.log(`Found node_modules at ${itemRelativePath}, scanning first level only`);
-              // Only scan immediate children of node_modules (first level packages)
-              try {
-                const nodeModulesItems = fs.readdirSync(fullPath);
-                for (const pkg of nodeModulesItems.slice(0, 50)) { // Limit to first 50 packages
-                  if (pkg.startsWith('.')) continue; // Skip hidden files
-                  
-                  const pkgPath = path.join(fullPath, pkg);
-                  const pkgRelativePath = path.join(itemRelativePath, pkg).replace(/\\/g, '/');
-                  
-                  try {
-                    const pkgStats = fs.lstatSync(pkgPath);
-                    if (pkgStats.isDirectory()) {
-                      results.push({
-                        name: pkg,
-                        path: pkgRelativePath.startsWith('/') ? pkgRelativePath : `/${pkgRelativePath}`,
-                        content: null,
-                        isFolder: true
-                      });
-                    }
-                  } catch (pkgError) {
-                    // Skip problematic packages
-                    continue;
-                  }
-                }
-              } catch (error) {
-                console.error(`Error scanning node_modules: ${error}`);
-              }
-            } else {
-              // Recursively scan subdirectory (with depth limit)
-              const depth = relativePath.split('/').length;
-              if (depth < 8) { // Reduced depth limit for performance
-                const childResults = await this.scanDirectory(fullPath, itemRelativePath);
-                results.push(...childResults);
-              }
+            // Recursively scan subdirectory (with depth limit)
+            const depth = relativePath.split('/').length;
+            if (depth < 10) { // Limit recursion depth
+              const childResults = await this.scanDirectory(fullPath, itemRelativePath);
+              results.push(...childResults);
             }
           } else if (stats.isFile()) {
             // Add file with content (limit file size and handle binary files)
@@ -299,6 +261,7 @@ export class FileSync {
 
   private shouldSkipItem(item: string): boolean {
     const skipPatterns = [
+      'node_modules',
       '.git',
       '.cache',
       'dist',
@@ -355,23 +318,7 @@ export class FileSync {
       clearTimeout(this.syncTimeout);
       this.syncTimeout = null;
     }
-    console.log(`Force sync now called for project ${this.projectId} at ${this.workspaceDir}`);
     await this.performSync();
-    console.log(`Force sync completed for project ${this.projectId}`);
-  }
-
-  // Add cleanup method that may be referenced
-  cleanup(): void {
-    if (this.syncTimeout) {
-      clearTimeout(this.syncTimeout);
-      this.syncTimeout = null;
-    }
-    if (this.deleteTimeout) {
-      clearTimeout(this.deleteTimeout);
-      this.deleteTimeout = null;
-    }
-    this.recentlyDeleted.clear();
-    console.log(`FileSync cleanup completed for project ${this.projectId}`);
   }
 
   // Fix hierarchy for existing database files
@@ -426,5 +373,18 @@ export class FileSync {
     }, 30000); // 30 seconds
   }
 
+  // Cleanup
+  cleanup(): void {
+    if (this.syncTimeout) {
+      clearTimeout(this.syncTimeout);
+      this.syncTimeout = null;
+    }
 
+    if (this.deleteTimeout) {
+      clearTimeout(this.deleteTimeout);
+      this.deleteTimeout = null;
+    }
+
+    this.recentlyDeleted.clear();
+  }
 }

@@ -171,40 +171,6 @@ body {
     }
   });
 
-  // Manual file sync endpoint for debugging
-  app.post("/api/projects/:projectId/sync", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const projectId = parseInt(req.params.projectId);
-
-      // Verify project ownership
-      const project = await storage.getProject(projectId);
-      if (!project || project.userId !== userId) {
-        return res.status(404).json({ message: "Project not found" });
-      }
-
-      // Import FileSync and manually sync
-      const { FileSync } = await import('./services/fileSync');
-      const workspaceDir = `/tmp/shetty-workspace/${userId}/${projectId}`;
-      const fileSync = new FileSync(projectId, workspaceDir);
-      
-      console.log(`Manual sync triggered for project ${projectId} at ${workspaceDir}`);
-      await fileSync.syncWorkspaceToDatabase();
-      
-      // Get updated files
-      const files = await storage.getProjectFiles(projectId);
-      
-      res.json({ 
-        message: "Files synced successfully", 
-        fileCount: files.length,
-        files: files.map(f => ({ id: f.id, name: f.name, path: f.path, isFolder: f.isFolder }))
-      });
-    } catch (error) {
-      console.error("Error syncing files:", error);
-      res.status(500).json({ message: "Failed to sync files" });
-    }
-  });
-
   app.post("/api/projects/:projectId/files", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
