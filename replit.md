@@ -160,3 +160,15 @@ The architecture prioritizes developer experience with hot reloading, type safet
   - Maintains responsive feel while keeping background sync functionality
 - **Result**: File tree updates seamlessly without disruptive loading messages every 2 seconds
 - **Status**: ✓ Silent refresh implemented, ✓ User experience improved, ✓ Background sync maintained
+
+### January 23, 2025 - Preserved User State During Auto-Refresh
+- **Issue**: Auto-refresh resetting expanded folder state every 2 seconds, closing open folders automatically
+- **Resolution**: Modified refresh logic to preserve expanded folders and selections during background updates
+- **Features**: 
+  - Expanded folders remain open during auto-refresh cycles
+  - File selections preserved across background syncs
+  - Auto-refresh continues every 2 seconds for terminal sync without state disruption
+  - Previous files displayed during temporary empty states to prevent flickering
+  - "No files yet" message only shows on initial empty load, not during refreshes
+- **Result**: File tree maintains user interactions (open folders, selections) while refreshing in background
+- **Status**: ✓ Folder states preserved, ✓ No flickering, ✓ Seamless background sync

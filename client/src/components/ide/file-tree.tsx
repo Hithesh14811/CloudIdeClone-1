@@ -159,7 +159,8 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
         setShowLoadingIndicator(false);
         // Force complete refresh immediately
         setRefreshKey(prev => prev + 1);
-        setExpandedFolders(new Set([0])); // Reset to root expanded only
+        // Keep expanded folders intact during socket updates too
+        // Don't reset expandedFolders to preserve user state
       }
     };
 
@@ -190,9 +191,8 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
           setShowLoadingIndicator(false);
           // Force complete refresh by incrementing refresh key
           setRefreshKey(prev => prev + 1);
-          // Also clear expanded folders and selections to mimic browser refresh
-          setExpandedFolders(new Set([0])); // Reset to root expanded only
-          setSelectedFiles(new Set()); // Clear selections
+          // Keep expanded folders and selections intact during auto-refresh
+          // Don't reset expandedFolders or selectedFiles to preserve user state
         }
       }, 2000); // Refresh every 2 seconds
     };
