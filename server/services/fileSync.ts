@@ -211,9 +211,15 @@ export class FileSync {
               isFolder: true
             });
             
-            // Recursively scan subdirectory (with depth limit)
+            // Recursively scan subdirectory (with depth limit and special node_modules handling)
             const depth = relativePath.split('/').length;
+            const isNodeModules = item === 'node_modules';
+            
             if (depth < 10) { // Limit recursion depth
+              if (isNodeModules && depth > 2) {
+                // For node_modules, only scan first level to show main packages but avoid deep nesting
+                continue;
+              }
               const childResults = await this.scanDirectory(fullPath, itemRelativePath);
               results.push(...childResults);
             }
@@ -261,7 +267,6 @@ export class FileSync {
 
   private shouldSkipItem(item: string): boolean {
     const skipPatterns = [
-      'node_modules',
       '.git',
       '.cache',
       'dist',

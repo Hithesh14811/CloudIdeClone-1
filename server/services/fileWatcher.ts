@@ -31,8 +31,12 @@ export class FileWatcher {
     this.watcher = chokidar.watch(this.watchPath, {
       ignored: [
         /(^|[\/\\])\../, // ignore dotfiles
-        '**/node_modules/**', // ignore node_modules subdirectories for performance
-        '!node_modules', // but allow the root node_modules folder itself
+        '**/node_modules/**/node_modules/**', // ignore nested node_modules for performance
+        '**/node_modules/**/.bin/**', // ignore .bin directories
+        '**/node_modules/**/dist/**', // ignore dist in node_modules
+        '**/node_modules/**/build/**', // ignore build in node_modules
+        '**/node_modules/**/coverage/**', // ignore coverage in node_modules
+        '**/node_modules/**/*.d.ts', // ignore TypeScript definitions to reduce noise
         '**/\.git/**', // ignore git
         '**/*~', // ignore temp files
         '**/tmp/**', // ignore tmp directories
@@ -44,8 +48,8 @@ export class FileWatcher {
         '**/logs/**', // ignore log directories
         '**/.cache/**', // ignore cache directories
         '**/vendor/**', // ignore vendor directories
-        '**/dist/**', // ignore build directories
-        '**/build/**', // ignore build directories
+        '**/dist/**', // ignore build directories (but not in node_modules - handled above)
+        '**/build/**', // ignore build directories (but not in node_modules - handled above)
       ],
       persistent: true,
       ignoreInitial: true, // Don't scan initial files

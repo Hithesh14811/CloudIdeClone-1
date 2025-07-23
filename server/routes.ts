@@ -199,6 +199,34 @@ body {
     }
   });
 
+  // Force sync files from filesystem to database
+  app.post("/api/projects/:projectId/sync-files", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const projectId = parseInt(req.params.projectId);
+      
+      // Verify project ownership
+      const project = await storage.getProject(projectId);
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      // Get FileSync instance and force sync
+      const fileSync = getFileSyncForProject(projectId.toString(), userId);
+      if (fileSync) {
+        await fileSync.forceSyncNow();
+        // Emit real-time event for file sync
+        emitFileUpdate(projectId, 'sync');
+        res.json({ message: "Files synced successfully" });
+      } else {
+        res.status(404).json({ message: "FileSync not available for this project" });
+      }
+    } catch (error) {
+      console.error("Error syncing files:", error);
+      res.status(500).json({ message: "Failed to sync files" });
+    }
+  });
+
   app.put("/api/files/:id", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
