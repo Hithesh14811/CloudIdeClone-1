@@ -791,6 +791,340 @@ button:hover {
     }
   );
 
+  // Global search endpoint
+  app.post('/api/projects/:id/search', isAuthenticated, async (req, res) => {
+    try {
+      const projectId = parseInt(req.params.id);
+      const { query, caseSensitive = false, wholeWord = false, useRegex = false } = req.body;
+
+      if (!query || query.trim() === '') {
+        return res.json([]);
+      }
+
+      // Get all files in the project
+      const files = await storage.getProjectFiles(projectId);
+      const searchResults = [];
+
+      for (const file of files) {
+        if (file.type === 'folder' || !file.content) continue;
+
+        const matches = [];
+        const lines = file.content.split('\n');
+
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+          const line = lines[lineIndex];
+          let searchPattern;
+
+          try {
+            if (useRegex) {
+              searchPattern = new RegExp(query, caseSensitive ? 'g' : 'gi');
+            } else {
+              const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const pattern = wholeWord ? `\\b${escapedQuery}\\b` : escapedQuery;
+              searchPattern = new RegExp(pattern, caseSensitive ? 'g' : 'gi');
+            }
+
+            let match;
+            while ((match = searchPattern.exec(line)) !== null) {
+              const beforeText = line.substring(Math.max(0, match.index - 20), match.index);
+              const afterText = line.substring(match.index + match[0].length, Math.min(line.length, match.index + match[0].length + 20));
+
+              matches.push({
+                line: lineIndex + 1,
+                column: match.index + 1,
+                text: line,
+                matchText: match[0],
+                beforeText,
+                afterText
+              });
+
+              // Prevent infinite loop for zero-width matches
+              if (match.index === searchPattern.lastIndex) {
+                searchPattern.lastIndex++;
+              }
+            }
+          } catch (error) {
+            // Invalid regex, skip this file
+            continue;
+          }
+        }
+
+        if (matches.length > 0) {
+          searchResults.push({
+            fileId: file.id,
+            fileName: file.name,
+            filePath: file.path,
+            matches
+          });
+        }
+      }
+
+      res.json(searchResults);
+    } catch (error) {
+      console.error('Search error:', error);
+      res.status(500).json({ error: 'Search failed' });
+    }
+  });
+
+  // Replace in file endpoint
+  app.post('/api/files/:id/replace', isAuthenticated, async (req, res) => {
+    try {
+      const fileId = parseInt(req.params.id);
+      const { replacements } = req.body;
+
+      const file = await storage.getFile(fileId);
+      if (!file) {
+        return res.status(404).json({ error: 'File not found' });
+      }
+
+      if (file.type === 'folder') {
+        return res.status(400).json({ error: 'Cannot replace content in folder' });
+      }
+
+      let content = file.content || '';
+      const lines = content.split('\n');
+
+      // Sort replacements by line and column in reverse order to avoid offset issues
+      const sortedReplacements = [...replacements].sort((a, b) => {
+        if (a.line !== b.line) return b.line - a.line;
+        return b.column - a.column;
+      });
+
+      for (const replacement of sortedReplacements) {
+        const lineIndex = replacement.line - 1;
+        if (lineIndex >= 0 && lineIndex < lines.length) {
+          const line = lines[lineIndex];
+          const columnIndex = replacement.column - 1;
+          
+          if (columnIndex >= 0 && columnIndex < line.length) {
+            const beforeText = line.substring(0, columnIndex);
+            const afterText = line.substring(columnIndex + replacement.oldText.length);
+            lines[lineIndex] = beforeText + replacement.newText + afterText;
+          }
+        }
+      }
+
+      const newContent = lines.join('\n');
+      await storage.updateFile(fileId, { content: newContent });
+
+      // Emit real-time update
+      if (globalIO) {
+        globalIO.emit('file-updated', {
+          fileId,
+          content: newContent,
+          timestamp: new Date()
+        });
+      }
+
+      res.json({ success: true, content: newContent });
+    } catch (error) {
+      console.error('Replace error:', error);
+      res.status(500).json({ error: 'Replace failed' });
+    }
+  });
+
+  // Enhanced file content endpoint with line navigation
+  app.get('/api/files/:id/content', isAuthenticated, async (req, res) => {
+    try {
+      const fileId = parseInt(req.params.id);
+      const { line, column } = req.query;
+
+      const file = await storage.getFile(fileId);
+      if (!file) {
+        return res.status(404).json({ error: 'File not found' });
+      }
+
+      const response: any = {
+        id: file.id,
+        name: file.name,
+        path: file.path,
+        content: file.content || '',
+        type: file.type
+      };
+
+      // Add line/column information if requested
+      if (line) {
+        const lineNumber = parseInt(line as string);
+        const columnNumber = column ? parseInt(column as string) : 1;
+        
+        response.navigation = {
+          line: lineNumber,
+          column: columnNumber
+        };
+      }
+
+      res.json(response);
+    } catch (error) {
+      console.error('Get file content error:', error);
+      res.status(500).json({ error: 'Failed to get file content' });
+    }
+  });
+
+  // Batch file operations endpoint
+  app.post('/api/projects/:id/batch-operations', isAuthenticated, async (req, res) => {
+    try {
+      const projectId = parseInt(req.params.id);
+      const { operations } = req.body;
+
+      const results = [];
+
+      for (const operation of operations) {
+        try {
+          let result;
+          
+          switch (operation.type) {
+            case 'create':
+              result = await storage.createFile({
+                name: operation.name,
+                type: operation.fileType || 'file',
+                path: operation.path,
+                content: operation.content || '',
+                projectId,
+                parentId: operation.parentId
+              });
+              break;
+              
+            case 'update':
+              result = await storage.updateFile(operation.fileId, {
+                content: operation.content,
+                name: operation.name
+              });
+              break;
+              
+            case 'delete':
+              await storage.deleteFile(operation.fileId);
+              result = { success: true, fileId: operation.fileId };
+              break;
+              
+            case 'move':
+              result = await storage.updateFile(operation.fileId, {
+                parentId: operation.newParentId,
+                path: operation.newPath
+              });
+              break;
+              
+            default:
+              result = { error: `Unknown operation type: ${operation.type}` };
+          }
+          
+          results.push({ ...operation, result });
+        } catch (error) {
+          results.push({ 
+            ...operation, 
+            result: { error: error.message } 
+          });
+        }
+      }
+
+      // Emit real-time updates
+      if (globalIO) {
+        globalIO.emit('file-tree-update', {
+          projectId,
+          timestamp: new Date(),
+          operations: results
+        });
+      }
+
+      res.json({ results });
+    } catch (error) {
+      console.error('Batch operations error:', error);
+      res.status(500).json({ error: 'Batch operations failed' });
+    }
+  });
+
+  // File tree with search and filtering
+  app.get('/api/projects/:id/files/tree', isAuthenticated, async (req, res) => {
+    try {
+      const projectId = parseInt(req.params.id);
+      const { search, type, limit = 1000 } = req.query;
+
+      let files = await storage.getProjectFiles(projectId);
+
+      // Apply search filter
+      if (search) {
+        const searchTerm = (search as string).toLowerCase();
+        files = files.filter(file => 
+          file.name.toLowerCase().includes(searchTerm) ||
+          file.path.toLowerCase().includes(searchTerm)
+        );
+      }
+
+      // Apply type filter
+      if (type && type !== 'all') {
+        files = files.filter(file => file.type === type);
+      }
+
+      // Apply limit
+      files = files.slice(0, parseInt(limit as string));
+
+      // Build hierarchical structure
+      const fileMap = new Map();
+      const rootFiles = [];
+
+      // First pass: create all file objects
+      files.forEach(file => {
+        fileMap.set(file.id, { ...file, children: [] });
+      });
+
+      // Second pass: build hierarchy
+      files.forEach(file => {
+        const fileObj = fileMap.get(file.id);
+        if (file.parentId && fileMap.has(file.parentId)) {
+          fileMap.get(file.parentId).children.push(fileObj);
+        } else {
+          rootFiles.push(fileObj);
+        }
+      });
+
+      res.json(rootFiles);
+    } catch (error) {
+      console.error('Get file tree error:', error);
+      res.status(500).json({ error: 'Failed to get file tree' });
+    }
+  });
+
+  // File statistics endpoint
+  app.get('/api/projects/:id/stats', isAuthenticated, async (req, res) => {
+    try {
+      const projectId = parseInt(req.params.id);
+      const files = await storage.getProjectFiles(projectId);
+
+      const stats = {
+        totalFiles: 0,
+        totalFolders: 0,
+        totalSize: 0,
+        fileTypes: {},
+        lastModified: null,
+        lineCount: 0
+      };
+
+      files.forEach(file => {
+        if (file.type === 'file') {
+          stats.totalFiles++;
+          const content = file.content || '';
+          stats.totalSize += content.length;
+          stats.lineCount += content.split('\n').length;
+
+          // File type statistics
+          const ext = file.name.split('.').pop()?.toLowerCase() || 'no-extension';
+          stats.fileTypes[ext] = (stats.fileTypes[ext] || 0) + 1;
+
+          // Last modified (using file ID as proxy since we don't have timestamps)
+          if (!stats.lastModified || file.id > stats.lastModified) {
+            stats.lastModified = file.id;
+          }
+        } else {
+          stats.totalFolders++;
+        }
+      });
+
+      res.json(stats);
+    } catch (error) {
+      console.error('Get project stats error:', error);
+      res.status(500).json({ error: 'Failed to get project statistics' });
+    }
+  });
+
   // Admin routes (if admin emails are configured)
   if (process.env.ADMIN_EMAILS) {
     const { requireAdmin } = await import('./replitAuth');
