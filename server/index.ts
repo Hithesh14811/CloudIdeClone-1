@@ -40,6 +40,17 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  console.log('Starting Shetty IDE server...');
+  
+  // Add database connection test
+  try {
+    const { db } = await import('./db');
+    console.log('Database connection established successfully');
+  } catch (error) {
+    console.error('Database connection failed:', error);
+    console.log('Continuing startup without database connection...');
+  }
+  
   const server = await registerRoutes(app);
   
   // Setup Socket.IO
