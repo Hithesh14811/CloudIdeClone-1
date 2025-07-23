@@ -1168,6 +1168,19 @@ button:hover {
   return httpServer;
 }
 
+// Update preview files after AI operations
+async function updatePreviewFiles(projectId: string, userId: string): Promise<void> {
+  try {
+    // This would trigger preview refresh if needed
+    console.log(`Updating preview for project ${projectId}, user ${userId}`);
+    // Implementation would depend on preview service
+  } catch (error) {
+    console.error('Error updating preview files:', error);
+  }
+}
+
+
+
 // Execute AI file operations
 async function executeAIFileOperations(actions: any[], projectId: number, userId: string) {
   for (const action of actions) {
