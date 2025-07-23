@@ -531,61 +531,28 @@ button:hover {
     }
   );
 
-  // AI Assistant routes with enhanced security
-  app.post("/api/ai/chat", 
+  // Enhanced AI Chat endpoint with full workspace capabilities
+  app.post('/api/ai/chat', 
     isAuthenticated,
     aiRateLimit,
     validateAiChat,
     handleValidationErrors,
     async (req, res) => {
-      try {
-        const { message, projectId } = req.body;
-        const userId = (req as any).user.claims.sub;
-
-        // Verify project ownership
-        const project = await storage.getProject(parseInt(projectId));
-        if (!project || project.userId !== userId) {
-          return res.status(404).json({ 
-            error: "Project not found",
-            code: "PROJECT_NOT_FOUND"
-          });
-        }
-
-        // Use the AI service to process the request and potentially modify files
-        const aiResponse = await processAIRequest(message, parseInt(projectId), userId);
-
-        // If files were modified, trigger preview update
-        if (aiResponse.actions && aiResponse.actions.length > 0) {
-          // Update preview if there's an active session
-          updatePreviewFiles(projectId, userId).catch(console.error);
-          
-          // Emit file update event
-          emitFileUpdate(parseInt(projectId), 'ai_update');
-        }
-
-        res.json({
-          message: aiResponse.message,
-          actions: aiResponse.actions,
-          success: aiResponse.success,
-          timestamp: new Date().toISOString()
-        });
-      } catch (error) {
-        console.error("Error in AI chat:", error);
-        res.status(500).json({ 
-          error: "Failed to process AI request",
-          code: "AI_REQUEST_ERROR"
-        });
-      }
-    }
-  );
-
-  // Enhanced AI Chat endpoint with full workspace capabilities
-  app.post('/api/ai/chat', isAuthenticated, async (req, res) => {
     try {
       const { message, projectId, model = 'gpt-4', context } = req.body;
+      const userId = (req as any).user.claims.sub;
       
       if (!message || !projectId) {
         return res.status(400).json({ error: 'Message and project ID are required' });
+      }
+
+      // Verify project ownership
+      const project = await storage.getProject(parseInt(projectId));
+      if (!project || project.userId !== userId) {
+        return res.status(404).json({ 
+          error: "Project not found",
+          code: "PROJECT_NOT_FOUND"
+        });
       }
 
       // Get project files for context
@@ -602,8 +569,21 @@ button:hover {
         projectId,
         model,
         files: fileContext,
-        userContext: context
+        userContext: context,
+        userId
       });
+
+      // If AI performed file operations, emit socket events and update preview
+      if (aiResponse.actions && aiResponse.actions.length > 0) {
+        // Execute file operations
+        await executeAIFileOperations(aiResponse.actions, parseInt(projectId), userId);
+        
+        // Update preview if there's an active session
+        updatePreviewFiles(projectId, userId).catch(console.error);
+        
+        // Emit file update event
+        emitFileUpdate(parseInt(projectId), 'ai_update');
+      }
 
       res.json(aiResponse);
     } catch (error) {
@@ -1186,6 +1166,75 @@ button:hover {
 
   const httpServer = createServer(app);
   return httpServer;
+}
+
+// Execute AI file operations
+async function executeAIFileOperations(actions: any[], projectId: number, userId: string) {
+  for (const action of actions) {
+    try {
+      switch (action.type) {
+        case 'create_file':
+          await storage.createFile({
+            name: action.target.split('/').pop() || 'untitled',
+            path: action.target,
+            type: 'file',
+            content: action.content || '',
+            projectId,
+            parentId: null
+          });
+          break;
+          
+        case 'update_file':
+          const files = await storage.getProjectFiles(projectId);
+          const file = files.find(f => f.path === action.target || f.name === action.target);
+          if (file) {
+            await storage.updateFile(file.id, {
+              content: action.content
+            });
+          }
+          break;
+          
+                 case 'delete_file':
+           const filesToDelete = await storage.getProjectFiles(projectId);
+           const fileToDelete = filesToDelete.find(f => f.path === action.target || f.name === action.target);
+           if (fileToDelete) {
+             await storage.deleteFile(fileToDelete.id);
+           }
+           break;
+           
+         case 'run_command':
+           // Execute command through Docker service
+           try {
+             const files = await storage.getProjectFiles(projectId);
+             const containerSession = await dockerService.createContainer(projectId.toString(), userId, files);
+             const childProcess = await dockerService.executeCommand(containerSession.id, action.target);
+             
+             // Store command result (simplified for AI feedback)
+             action.result = `Command '${action.target}' executed successfully`;
+           } catch (error) {
+             action.result = `Command failed: ${error.message}`;
+             console.error(`AI command execution failed:`, error);
+           }
+           break;
+           
+         case 'install_package':
+           // Install package via npm
+           try {
+             const files = await storage.getProjectFiles(projectId);
+             const containerSession = await dockerService.createContainer(projectId.toString(), userId, files);
+             const childProcess = await dockerService.executeCommand(containerSession.id, `npm install ${action.target}`);
+             
+             action.result = `Package '${action.target}' installed successfully`;
+           } catch (error) {
+             action.result = `Package installation failed: ${error.message}`;
+             console.error(`AI package installation failed:`, error);
+           }
+           break;
+      }
+    } catch (error) {
+      console.error(`Failed to execute AI action ${action.type}:`, error);
+    }
+  }
 }
 
 // AI Request Processing Function

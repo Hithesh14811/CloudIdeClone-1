@@ -1,5 +1,5 @@
 import * as monaco from 'monaco-editor';
-import { loader } from '@monaco-editor/loader';
+import loader from '@monaco-editor/loader';
 
 // Configure Monaco Editor with VS Code-level features
 export async function initializeMonaco() {

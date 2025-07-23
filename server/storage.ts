@@ -584,6 +584,3 @@ export class DatabaseStorage implements IStorage {
 
 // Create singleton instance
 export const storage = new DatabaseStorage();
-
-// Export for testing and advanced usage
-export { DatabaseStorage };
