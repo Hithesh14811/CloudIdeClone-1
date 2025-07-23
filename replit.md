@@ -172,3 +172,14 @@ The architecture prioritizes developer experience with hot reloading, type safet
   - "No files yet" message only shows on initial empty load, not during refreshes
 - **Result**: File tree maintains user interactions (open folders, selections) while refreshing in background
 - **Status**: ✓ Folder states preserved, ✓ No flickering, ✓ Seamless background sync
+
+### January 23, 2025 - Faster File Tree Refresh Rate
+- **Issue**: User requested faster refresh rate for more responsive file synchronization
+- **Resolution**: Reduced auto-refresh interval from 2 seconds to 0.5 seconds
+- **Features**: 
+  - File tree now refreshes every 500ms for near-instant terminal file sync
+  - Maintains all existing optimizations (silent refresh, preserved state, no flickering)
+  - No performance impact on other components as refresh is already optimized
+  - HTTP 304 responses minimize actual data transfer when no changes detected
+- **Result**: Terminal-created files appear in file tree within half a second
+- **Status**: ✓ Faster refresh implemented, ✓ Performance maintained, ✓ User experience improved

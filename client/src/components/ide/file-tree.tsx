@@ -194,7 +194,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
           // Keep expanded folders and selections intact during auto-refresh
           // Don't reset expandedFolders or selectedFiles to preserve user state
         }
-      }, 2000); // Refresh every 2 seconds
+      }, 500); // Refresh every 0.5 seconds
     };
 
     if (projectId) {
