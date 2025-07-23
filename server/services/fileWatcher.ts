@@ -27,11 +27,12 @@ export class FileWatcher {
       this.stop();
     }
 
-    // Watch the directory for changes with ultra-fast settings for progressive file creation
+    // Watch the directory for changes with progressive file creation support
     this.watcher = chokidar.watch(this.watchPath, {
       ignored: [
         /(^|[\/\\])\../, // ignore dotfiles
-        '**/node_modules/**/node_modules/**', // allow first-level node_modules for npm install visibility
+        '**/node_modules/**', // ignore node_modules subdirectories for performance
+        '!node_modules', // but allow the root node_modules folder itself
         '**/\.git/**', // ignore git
         '**/*~', // ignore temp files
         '**/tmp/**', // ignore tmp directories
@@ -43,20 +44,22 @@ export class FileWatcher {
         '**/logs/**', // ignore log directories
         '**/.cache/**', // ignore cache directories
         '**/vendor/**', // ignore vendor directories
+        '**/dist/**', // ignore build directories
+        '**/build/**', // ignore build directories
       ],
       persistent: true,
       ignoreInitial: true, // Don't scan initial files
-      depth: 15, // Higher depth for better nested structure detection
+      depth: 10, // Optimized depth for performance vs visibility
       awaitWriteFinish: {
-        stabilityThreshold: 25, // Ultra-fast detection for real-time updates
-        pollInterval: 10 // Very fast polling for immediate detection
+        stabilityThreshold: 15, // Ultra-fast detection for progressive updates
+        pollInterval: 5 // Very fast polling for immediate detection
       },
       followSymlinks: false,
       ignorePermissionErrors: true,
       atomic: true,
       usePolling: false, // Use native file system events for maximum speed
-      interval: 100, // Faster fallback polling
-      binaryInterval: 500, // Faster binary file detection
+      interval: 50, // Faster fallback polling
+      binaryInterval: 200, // Faster binary file detection
       alwaysStat: false // Don't stat files unless needed
     });
 
@@ -65,12 +68,10 @@ export class FileWatcher {
       this.sendFileTreeUpdate();
     }, 100);
 
-    // Listen for changes with immediate socket emissions for instant UI updates
+    // Listen for changes with immediate socket emissions for instant progressive updates
     let updateTimeout: NodeJS.Timeout | null = null;
-    const throttledUpdate = (eventType?: string, filePath?: string) => {
-      if (updateTimeout) clearTimeout(updateTimeout);
-      
-      // Emit immediate socket event for real-time frontend updates
+    const immediateUpdate = (eventType: string, filePath: string) => {
+      // Emit immediate socket event for instant UI updates
       this.socket.emit('files:updated', { 
         projectId: this.projectId,
         eventType,
@@ -78,32 +79,34 @@ export class FileWatcher {
         timestamp: Date.now()
       });
       
+      // Also schedule background database sync with minimal delay
+      if (updateTimeout) clearTimeout(updateTimeout);
       updateTimeout = setTimeout(() => {
         this.sendFileTreeUpdate();
         updateTimeout = null;
-      }, 10); // Ultra-fast throttling - max every 10ms for progressive updates
+      }, 5); // 5ms for ultra-fast progressive updates
     };
 
     this.watcher
       .on('add', (path) => {
         console.log('File added:', path);
-        throttledUpdate('add', path);
+        immediateUpdate('add', path);
       })
       .on('addDir', (path) => {
         console.log('Directory added:', path);
-        throttledUpdate('addDir', path);
+        immediateUpdate('addDir', path);
       })
       .on('change', (path) => {
         console.log('File changed:', path);
-        throttledUpdate('change', path);
+        immediateUpdate('change', path);
       })
       .on('unlink', (path) => {
         console.log('File removed:', path);
-        throttledUpdate('unlink', path);
+        immediateUpdate('unlink', path);
       })
       .on('unlinkDir', (path) => {
         console.log('Directory removed:', path);
-        throttledUpdate('unlinkDir', path);
+        immediateUpdate('unlinkDir', path);
       })
       .on('error', (error: any) => {
         // Handle ENOSPC errors gracefully

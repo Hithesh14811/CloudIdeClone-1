@@ -8,6 +8,7 @@ import {
   serial,
   boolean,
   integer,
+  unique,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -56,7 +57,9 @@ export const files = pgTable("files", {
   projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  uniqueProjectPath: unique("unique_project_path").on(table.projectId, table.path),
+}));
 
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({

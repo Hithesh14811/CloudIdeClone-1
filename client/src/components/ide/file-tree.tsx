@@ -101,7 +101,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   const socketRef = useRef<Socket | null>(null);
   const autoRefreshRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Fetch files for the project with refresh key for complete reloads
+  // Fetch files for the project with deduplication and refresh key for complete reloads
   const { data: files = [], isLoading, refetch } = useQuery<FileNode[]>({
     queryKey: ['project-files', projectId, refreshKey],
     queryFn: async () => {
@@ -118,9 +118,21 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       }));
     },
     enabled: !!projectId,
-    staleTime: 1000 * 60, // Cache for 1 minute to improve performance
-    gcTime: 1000 * 60 * 5, // Keep in cache for 5 minutes
+    staleTime: 1000 * 30, // Reduced cache time for more responsive updates
+    gcTime: 1000 * 60 * 2, // Reduced garbage collection time
     refetchOnWindowFocus: false, // Don't refetch on window focus
+    select: (data) => {
+      // Frontend deduplication as backup safety net
+      const seen = new Set<string>();
+      return data.filter((file) => {
+        if (seen.has(file.path)) {
+          console.warn(`Duplicate file path detected: ${file.path}`);
+          return false;
+        }
+        seen.add(file.path);
+        return true;
+      });
+    }
   });
 
   // Update previous files and track if we've ever had files
@@ -154,43 +166,43 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     }
   }, [onFileTreeUpdateReceiver, queryClient, projectId]);
 
-  // Set up socket connection for real-time file updates (replacing polling)
+  // Set up socket connection for real-time file updates - SOCKET FIRST ARCHITECTURE
   useEffect(() => {
     if (!socketRef.current) {
       socketRef.current = io();
     }
 
-    // Listen for real-time file changes from terminal and backend
-    const handleFileChanges = (data: any) => {
-      console.log('Real-time file change detected:', data);
+    const socket = socketRef.current;
+    
+    // Join project room for targeted updates
+    socket.emit('join-project', { projectId: projectId.toString() });
+
+    // Real-time file event handler for progressive updates
+    const handleFileUpdates = (data: any) => {
+      console.log('Real-time file update:', data);
       const targetProjectId = parseInt(data.projectId) || data.projectId;
       if (targetProjectId === projectId || String(targetProjectId) === String(projectId)) {
         // Keep loading indicator hidden for socket updates
         setShowLoadingIndicator(false);
-        // Immediately invalidate cache for instant updates
-        queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
-        // Keep expanded folders and selection state intact
+        // Force complete refresh for instant progressive updates
+        setRefreshKey(prev => prev + 1);
+        // Preserve expanded folder state during updates
       }
     };
 
-    // Listen to multiple event types for comprehensive real-time updates
-    socketRef.current.on('files:updated', handleFileChanges);
-    socketRef.current.on('files:changed', handleFileChanges);
-    socketRef.current.on('file-tree-update', handleFileChanges);
-    socketRef.current.on('files:add', handleFileChanges);
-    socketRef.current.on('files:delete', handleFileChanges);
-    socketRef.current.on('files:modify', handleFileChanges);
+    // Listen to socket events for instant updates
+    socket.on('files:updated', handleFileUpdates);
+    socket.on('file-tree-update', handleFileUpdates);
+    socket.on('files:changed', handleFileUpdates);
 
     return () => {
-      if (socketRef.current) {
-        socketRef.current.off('files:updated', handleFileChanges);
-        socketRef.current.off('files:changed', handleFileChanges);
-        socketRef.current.off('file-tree-update', handleFileChanges);
-        socketRef.current.off('files:add', handleFileChanges);
-        socketRef.current.off('files:delete', handleFileChanges);
-        socketRef.current.off('files:modify', handleFileChanges);
-        socketRef.current.disconnect();
-      }
+      // Leave project room when component unmounts
+      socket.emit('leave-project', { projectId: projectId.toString() });
+      socket.off('files:updated', handleFileUpdates);
+      socket.off('file-tree-update', handleFileUpdates);
+      socket.off('files:changed', handleFileUpdates);
+      socket.disconnect();
+      socketRef.current = null;
     };
   }, [projectId, queryClient]);
 

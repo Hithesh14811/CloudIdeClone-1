@@ -28,6 +28,7 @@ interface IStorage {
   getProjectFiles(projectId: number): Promise<File[]>;
   getFile(fileId: number): Promise<File | undefined>;
   createFile(file: InsertFile): Promise<File>;
+  createOrUpdateFile(file: InsertFile): Promise<File>;
   updateFile(fileId: number, updates: Partial<InsertFile>): Promise<File>;
   deleteFile(fileId: number): Promise<void>;
 }
@@ -96,6 +97,29 @@ export class DatabaseStorage implements IStorage {
       .values(file)
       .returning();
     return newFile;
+  }
+
+  async createOrUpdateFile(file: InsertFile): Promise<File> {
+    try {
+      const [result] = await db
+        .insert(files)
+        .values(file)
+        .onConflictDoUpdate({
+          target: [files.projectId, files.path],
+          set: { 
+            name: file.name,
+            content: file.content,
+            isFolder: file.isFolder,
+            parentId: file.parentId,
+            updatedAt: new Date() 
+          }
+        })
+        .returning();
+      return result;
+    } catch (error) {
+      console.error('Error in createOrUpdateFile:', error);
+      throw error;
+    }
   }
 
   async updateFile(fileId: number, updates: Partial<InsertFile>): Promise<File> {

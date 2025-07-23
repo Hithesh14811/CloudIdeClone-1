@@ -17,13 +17,13 @@ export class FileSync {
     this.io = io || null;
   }
 
-  // Sync filesystem changes to database with debouncing and immediate socket events
+  // Sync filesystem changes to database with socket-first updates for instant UI
   async syncWorkspaceToDatabase(): Promise<void> {
     if (this.syncTimeout) {
       clearTimeout(this.syncTimeout);
     }
     
-    // Emit immediate event for real-time UI updates
+    // Emit immediate event for instant UI updates
     this.emitFileUpdateEvent();
     
     this.syncTimeout = setTimeout(async () => {
@@ -35,7 +35,21 @@ export class FileSync {
       } catch (error) {
         console.error('File sync error:', error);
       }
-    }, 300); // Reduced to 300ms for even faster updates
+    }, 200); // Reduced to 200ms for ultra-fast updates
+  }
+
+  // Immediate file event emission for progressive updates
+  emitFileEvent(eventType: string, filePath: string): void {
+    if (this.io) {
+      const projectRoom = `project-${this.projectId}`;
+      this.io.to(projectRoom).emit('files:updated', { 
+        projectId: this.projectId.toString(),
+        eventType,
+        filePath,
+        timestamp: Date.now()
+      });
+      console.log(`Emitted ${eventType} event for ${filePath} to room ${projectRoom}`);
+    }
   }
 
   // Emit socket event for real-time frontend updates
@@ -139,7 +153,7 @@ export class FileSync {
       const parentPath = folderData.path.substring(0, folderData.path.lastIndexOf('/')) || null;
       const parentId = parentPath ? pathToIdMap.get(parentPath) : null;
       
-      const folder = await storage.createFile({
+      const folder = await storage.createOrUpdateFile({
         ...folderData,
         parentId
       });
@@ -153,7 +167,7 @@ export class FileSync {
       const parentPath = fileData.path.substring(0, fileData.path.lastIndexOf('/')) || null;
       const parentId = parentPath ? pathToIdMap.get(parentPath) : null;
       
-      await storage.createFile({
+      await storage.createOrUpdateFile({
         ...fileData,
         parentId
       });
