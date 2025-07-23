@@ -96,6 +96,8 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   const [isUserCreating, setIsUserCreating] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0); // Force complete refresh
   const [showLoadingIndicator, setShowLoadingIndicator] = useState(true); // Control loading indicator visibility
+  const [previousFiles, setPreviousFiles] = useState<FileNode[]>([]); // Store previous files to prevent flickering
+  const [hasEverHadFiles, setHasEverHadFiles] = useState(false); // Track if we've ever loaded files
   const socketRef = useRef<Socket | null>(null);
   const autoRefreshRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -120,12 +122,17 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     gcTime: 0, // Don't cache results for true refresh behavior
   });
 
-  // Hide loading indicator after first load or when files exist
+  // Update previous files and track if we've ever had files
   useEffect(() => {
-    if (files.length > 0 || (!isLoading && files.length === 0)) {
+    if (files.length > 0) {
+      setPreviousFiles(files);
+      setHasEverHadFiles(true);
+      setShowLoadingIndicator(false);
+    } else if (!isLoading && files.length === 0 && !hasEverHadFiles) {
+      // Only hide loading indicator if this is truly the first empty load
       setShowLoadingIndicator(false);
     }
-  }, [files, isLoading]);
+  }, [files, isLoading, hasEverHadFiles]);
 
   // Set up file tree update receiver
   useEffect(() => {
@@ -420,6 +427,10 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     return sortRecursively(tree);
   };
 
+  // Use current files if available, otherwise use previous files to prevent flickering
+  const displayFiles = files.length > 0 ? files : previousFiles;
+  const treeData = buildTree(displayFiles);
+
   const handleToggleExpand = (nodeId: number) => {
     setExpandedFolders(prev => {
       const newSet = new Set(prev);
@@ -665,7 +676,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     );
   };
 
-  const treeData = buildTree(files as FileNode[]);
+
 
   return (
     <div className="w-64 bg-slate-800 border-r border-slate-700 flex flex-col">
@@ -779,7 +790,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
               </div>
             )}
             
-            {treeData.length === 0 && !creatingItem.show && (
+            {treeData.length === 0 && !creatingItem.show && !hasEverHadFiles && (
               <div className="p-4 text-center text-gray-400 text-sm">
                 No files yet. Create your first file or folder.
               </div>
