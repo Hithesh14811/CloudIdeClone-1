@@ -63,9 +63,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         userId,
       });
-      
+
       const project = await storage.createProject(projectData);
-      
+
       // Create default files for new project
       await storage.createFile({
         name: "index.html",
@@ -85,7 +85,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isFolder: false,
         projectId: project.id,
       });
-      
+
       await storage.createFile({
         name: "script.js",
         path: "/script.js",
@@ -94,7 +94,7 @@ console.log('Hello from Shetty IDE!');`,
         isFolder: false,
         projectId: project.id,
       });
-      
+
       await storage.createFile({
         name: "style.css",
         path: "/style.css",
@@ -108,7 +108,7 @@ body {
         isFolder: false,
         projectId: project.id,
       });
-      
+
       res.json(project);
     } catch (error) {
       console.error("Error creating project:", error);
@@ -120,12 +120,12 @@ body {
     try {
       const userId = req.user.claims.sub;
       const projectId = parseInt(req.params.id);
-      
+
       const project = await storage.getProject(projectId);
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "Project not found" });
       }
-      
+
       await storage.deleteProject(projectId);
       res.json({ message: "Project deleted successfully" });
     } catch (error) {
@@ -138,12 +138,12 @@ body {
     try {
       const userId = req.user.claims.sub;
       const projectId = parseInt(req.params.id);
-      
+
       const project = await storage.getProject(projectId);
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "Project not found" });
       }
-      
+
       res.json(project);
     } catch (error) {
       console.error("Error fetching project:", error);
@@ -156,13 +156,13 @@ body {
     try {
       const userId = req.user.claims.sub;
       const projectId = parseInt(req.params.projectId);
-      
+
       // Verify project ownership
       const project = await storage.getProject(projectId);
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "Project not found" });
       }
-      
+
       const files = await storage.getProjectFiles(projectId);
       res.json(files);
     } catch (error) {
@@ -175,23 +175,23 @@ body {
     try {
       const userId = req.user.claims.sub;
       const projectId = parseInt(req.params.projectId);
-      
+
       // Verify project ownership
       const project = await storage.getProject(projectId);
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "Project not found" });
       }
-      
+
       const fileData = insertFileSchema.parse({
         ...req.body,
         projectId,
       });
-      
+
       const file = await storage.createFile(fileData);
-      
+
       // Emit real-time event for file creation
       emitFileUpdate(projectId, 'create');
-      
+
       res.json(file);
     } catch (error) {
       console.error("Error creating file:", error);
@@ -199,60 +199,32 @@ body {
     }
   });
 
-  // Force sync files from filesystem to database
-  app.post("/api/projects/:projectId/sync-files", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const projectId = parseInt(req.params.projectId);
-      
-      // Verify project ownership
-      const project = await storage.getProject(projectId);
-      if (!project || project.userId !== userId) {
-        return res.status(404).json({ message: "Project not found" });
-      }
-      
-      // Get FileSync instance and force sync
-      const fileSync = getFileSyncForProject(projectId.toString(), userId);
-      if (fileSync) {
-        await fileSync.forceSyncNow();
-        // Emit real-time event for file sync
-        emitFileUpdate(projectId, 'sync');
-        res.json({ message: "Files synced successfully" });
-      } else {
-        res.status(404).json({ message: "FileSync not available for this project" });
-      }
-    } catch (error) {
-      console.error("Error syncing files:", error);
-      res.status(500).json({ message: "Failed to sync files" });
-    }
-  });
-
   app.put("/api/files/:id", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
       const fileId = parseInt(req.params.id);
-      
+
       // Verify file ownership through project
       const file = await storage.getFile(fileId);
       if (!file) {
         return res.status(404).json({ message: "File not found" });
       }
-      
+
       const project = await storage.getProject(file.projectId);
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "File not found" });
       }
-      
+
       const updates = z.object({
         content: z.string().optional(),
         name: z.string().optional(),
       }).parse(req.body);
-      
+
       const updatedFile = await storage.updateFile(fileId, updates);
-      
+
       // Emit real-time event for file update
       emitFileUpdate(file.projectId, 'update');
-      
+
       res.json(updatedFile);
     } catch (error) {
       console.error("Error updating file:", error);
@@ -264,28 +236,28 @@ body {
     try {
       const userId = req.user.claims.sub;
       const fileId = parseInt(req.params.id);
-      
+
       // Verify file ownership through project
       const file = await storage.getFile(fileId);
       if (!file) {
         return res.status(404).json({ message: "File not found" });
       }
-      
+
       const project = await storage.getProject(file.projectId);
       if (!project || project.userId !== userId) {
         return res.status(404).json({ message: "File not found" });
       }
-      
+
       // Delete from database first
       await storage.deleteFile(fileId);
-      
+
       // Mark file as recently deleted in FileSync to prevent re-sync
       const fileSync = getFileSyncForProject(file.projectId.toString(), userId);
       if (fileSync) {
         fileSync.markAsDeleted(file.path);
         console.log(`Marked file as deleted: ${file.path}`);
       }
-      
+
       // Also delete from filesystem workspace
       try {
         const fs = await import('fs');
@@ -293,7 +265,7 @@ body {
         const { tmpdir } = await import('os');
         const workspaceDir = path.join(tmpdir(), 'shetty-workspace', userId, file.projectId.toString());
         const fullFilePath = path.join(workspaceDir, file.path);
-        
+
         if (fs.existsSync(fullFilePath)) {
           const stats = fs.lstatSync(fullFilePath);
           if (stats.isDirectory()) {
@@ -310,10 +282,10 @@ body {
         console.error(`Error deleting from filesystem: ${fsError}`);
         // Don't fail the API call if filesystem deletion fails
       }
-      
+
       // Emit real-time event for file deletion
       emitFileUpdate(file.projectId, 'delete');
-      
+
       res.json({ message: "File deleted successfully" });
     } catch (error) {
       console.error("Error deleting file:", error);
@@ -326,20 +298,20 @@ body {
     try {
       const { message, projectId } = req.body;
       const userId = (req as any).user.claims.sub;
-      
+
       if (!projectId) {
         return res.status(400).json({ message: "Project ID is required" });
       }
-      
+
       // Use the AI service to process the request and potentially modify files
       const aiResponse = await processAIRequest(message, parseInt(projectId), userId);
-      
+
       // If files were modified, trigger preview update
       if (aiResponse.actions && aiResponse.actions.length > 0) {
         // Update preview if there's an active session
         updatePreviewFiles(projectId, userId).catch(console.error);
       }
-      
+
       res.json({
         message: aiResponse.message,
         actions: aiResponse.actions,
@@ -357,7 +329,7 @@ body {
     try {
       const userId = req.user.claims.sub;
       const projectId = parseInt(req.params.id);
-      
+
       // Verify project ownership
       const project = await storage.getProject(projectId);
       if (!project || project.userId !== userId) {
@@ -388,7 +360,7 @@ body {
     try {
       const userId = req.user.claims.sub;
       const projectId = parseInt(req.params.id);
-      
+
       // Verify project ownership
       const project = await storage.getProject(projectId);
       if (!project || project.userId !== userId) {
@@ -421,11 +393,11 @@ body {
     try {
       const { sessionId } = req.params;
       const filePath = (req.params as any)[0] || '';
-      
+
       // Find the preview session
       const { getPreviewSession } = await import("./services/preview");
       const session = getPreviewSession(sessionId);
-      
+
       if (!session) {
         return res.status(404).json({ message: "Preview session not found" });
       }
@@ -433,18 +405,18 @@ body {
       // Proxy the request to the preview server
       const fetch = (await import('node-fetch')).default;
       const previewUrl = `http://localhost:${session.port}/${filePath}`;
-      
+
       try {
         const response = await fetch(previewUrl);
         const content = await response.text();
-        
+
         // Set appropriate headers
         res.set({
           'Content-Type': response.headers.get('content-type') || 'text/html',
           'X-Frame-Options': 'SAMEORIGIN',
           'Access-Control-Allow-Origin': '*'
         });
-        
+
         res.send(content);
       } catch (fetchError) {
         res.status(503).send(`
@@ -474,28 +446,28 @@ body {
   app.post('/api/projects/:id/files/refresh', async (req: any, res) => {
     const projectId = parseInt(req.params.id);
     console.log(`Manual file tree refresh requested for project ${projectId}`);
-    
+
     try {
       // Import FileSync and force sync
       const { FileSync } = await import('./services/fileSync');
       const workspaceDir = `/tmp/shetty-workspace/${process.env.REPL_ID || 'dev'}/${projectId}`;
       const fileSync = new FileSync(projectId, workspaceDir);
-      
+
       // Force immediate sync
       await fileSync.forceSyncNow();
       console.log(`Files synced for project ${projectId}`);
-      
+
       // Force refresh by emitting socket event
       const io = req.app.get('io');
       if (io) {
         io.emit('files:forceRefresh', { projectId });
         console.log(`Force refreshing file tree for project ${projectId}`);
       }
-      
+
       res.json({ success: true, synced: true });
     } catch (error) {
       console.error('Error during file sync:', error);
-      
+
       // Still try to refresh UI
       const io = req.app.get('io');
       if (io) {

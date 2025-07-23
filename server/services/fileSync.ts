@@ -22,10 +22,10 @@ export class FileSync {
     if (this.syncTimeout) {
       clearTimeout(this.syncTimeout);
     }
-    
+
     // Emit immediate event for instant UI updates
     this.emitFileUpdateEvent();
-    
+
     this.syncTimeout = setTimeout(async () => {
       try {
         await this.performSync();
@@ -89,14 +89,14 @@ export class FileSync {
     for (const fsPath of Array.from(fsFileMap.keys())) {
       const fsFile = fsFileMap.get(fsPath)!;
       const dbFile = dbFileMap.get(fsPath);
-      
+
       if (!dbFile) {
         // Check if this file was recently deleted - if so, skip adding it back
         if (this.recentlyDeleted.has(fsFile.path)) {
           console.log(`Skipping recently deleted file: ${fsFile.path}`);
           continue;
         }
-        
+
         // New file
         toAdd.push({
           name: fsFile.name,
@@ -131,42 +131,42 @@ export class FileSync {
     // Add new files - handle folders first, then files to maintain hierarchy
     const foldersToAdd = toAdd.filter(f => f.isFolder);
     const filesToAdd = toAdd.filter(f => !f.isFolder);
-    
+
     // Create folders first and build parent-child relationships
     const pathToIdMap = new Map<string, number>();
-    
+
     // Also include existing database folders in the path map for proper hierarchy
     const existingFolders = dbFiles.filter(f => f.isFolder);
     for (const folder of existingFolders) {
       pathToIdMap.set(folder.path, folder.id);
     }
-    
+
     // Sort folders by depth (shallow to deep) to ensure parents are created first
     foldersToAdd.sort((a, b) => {
       const depthA = a.path.split('/').filter((p: string) => p).length;
       const depthB = b.path.split('/').filter((p: string) => p).length;
       return depthA - depthB;
     });
-    
+
     for (const folderData of foldersToAdd) {
       // Find parent folder ID if it exists
       const parentPath = folderData.path.substring(0, folderData.path.lastIndexOf('/')) || null;
       const parentId = parentPath ? pathToIdMap.get(parentPath) : null;
-      
+
       const folder = await storage.createOrUpdateFile({
         ...folderData,
         parentId
       });
-      
+
       pathToIdMap.set(folderData.path, folder.id);
     }
-    
+
     // Create files and assign proper parent IDs
     for (const fileData of filesToAdd) {
       // Find parent folder ID
       const parentPath = fileData.path.substring(0, fileData.path.lastIndexOf('/')) || null;
       const parentId = parentPath ? pathToIdMap.get(parentPath) : null;
-      
+
       await storage.createOrUpdateFile({
         ...fileData,
         parentId
@@ -182,10 +182,10 @@ export class FileSync {
 
   private async scanDirectory(dir: string, relativePath: string): Promise<any[]> {
     const results: any[] = [];
-    
+
     try {
       const items = fs.readdirSync(dir);
-      
+
       for (const item of items) {
         // Skip problematic directories and files
         if (this.shouldSkipItem(item)) {
@@ -194,10 +194,10 @@ export class FileSync {
 
         const fullPath = path.join(dir, item);
         const itemRelativePath = path.join(relativePath, item).replace(/\\/g, '/');
-        
+
         try {
           const stats = fs.lstatSync(fullPath);
-          
+
           if (stats.isSymbolicLink()) {
             continue; // Skip symlinks
           }
@@ -210,16 +210,10 @@ export class FileSync {
               content: null,
               isFolder: true
             });
-            
-            // Recursively scan subdirectory (with depth limit and special node_modules handling)
+
+            // Recursively scan subdirectory (with depth limit)
             const depth = relativePath.split('/').length;
-            const isNodeModules = item === 'node_modules';
-            
             if (depth < 10) { // Limit recursion depth
-              if (isNodeModules && depth > 2) {
-                // For node_modules, only scan first level to show main packages but avoid deep nesting
-                continue;
-              }
               const childResults = await this.scanDirectory(fullPath, itemRelativePath);
               results.push(...childResults);
             }
@@ -244,7 +238,7 @@ export class FileSync {
                 console.error(`Error reading file ${fullPath}:`, error);
                 content = '[Error reading file]';
               }
-              
+
               results.push({
                 name: item,
                 path: itemRelativePath.startsWith('/') ? itemRelativePath : `/${itemRelativePath}`,
@@ -261,12 +255,13 @@ export class FileSync {
     } catch (error) {
       console.error(`Error scanning directory ${dir}:`, error);
     }
-    
+
     return results;
   }
 
   private shouldSkipItem(item: string): boolean {
     const skipPatterns = [
+      'node_modules',
       '.git',
       '.cache',
       'dist',
@@ -313,7 +308,7 @@ export class FileSync {
       '.mp3', '.mp4', '.avi', '.mov', '.wav',
       '.woff', '.woff2', '.ttf', '.eot'
     ];
-    
+
     return binaryExtensions.some(ext => filename.toLowerCase().endsWith(ext));
   }
 
@@ -329,22 +324,22 @@ export class FileSync {
   // Fix hierarchy for existing database files
   async fixDatabaseHierarchy(): Promise<void> {
     const dbFiles = await storage.getProjectFiles(this.projectId);
-    
+
     // Build path to ID mapping for folders
     const pathToIdMap = new Map<string, number>();
     const foldersToUpdate: Array<{ id: number, parentId: number | null }> = [];
     const filesToUpdate: Array<{ id: number, parentId: number | null }> = [];
-    
+
     // First pass: map all folders
     for (const file of dbFiles.filter(f => f.isFolder)) {
       pathToIdMap.set(file.path, file.id);
     }
-    
+
     // Second pass: determine correct parent relationships
     for (const file of dbFiles) {
       const parentPath = file.path.substring(0, file.path.lastIndexOf('/')) || null;
       const correctParentId = parentPath ? pathToIdMap.get(parentPath) || null : null;
-      
+
       if (file.parentId !== correctParentId) {
         if (file.isFolder) {
           foldersToUpdate.push({ id: file.id, parentId: correctParentId });
@@ -353,12 +348,12 @@ export class FileSync {
         }
       }
     }
-    
+
     // Update database with correct parent relationships
     for (const update of [...foldersToUpdate, ...filesToUpdate]) {
       await storage.updateFile(update.id, { parentId: update.parentId });
     }
-    
+
     if (foldersToUpdate.length > 0 || filesToUpdate.length > 0) {
       console.log(`Fixed hierarchy for ${foldersToUpdate.length} folders and ${filesToUpdate.length} files`);
     }
@@ -367,12 +362,12 @@ export class FileSync {
   // Mark a file as recently deleted to prevent re-sync
   markAsDeleted(filePath: string): void {
     this.recentlyDeleted.add(filePath);
-    
+
     // Clear the deleted flag after 30 seconds
     if (this.deleteTimeout) {
       clearTimeout(this.deleteTimeout);
     }
-    
+
     this.deleteTimeout = setTimeout(() => {
       this.recentlyDeleted.delete(filePath);
     }, 30000); // 30 seconds
@@ -384,12 +379,12 @@ export class FileSync {
       clearTimeout(this.syncTimeout);
       this.syncTimeout = null;
     }
-    
+
     if (this.deleteTimeout) {
       clearTimeout(this.deleteTimeout);
       this.deleteTimeout = null;
     }
-    
+
     this.recentlyDeleted.clear();
   }
 }

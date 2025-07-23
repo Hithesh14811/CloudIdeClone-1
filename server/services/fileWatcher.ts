@@ -31,12 +31,8 @@ export class FileWatcher {
     this.watcher = chokidar.watch(this.watchPath, {
       ignored: [
         /(^|[\/\\])\../, // ignore dotfiles
-        '**/node_modules/**/node_modules/**', // ignore nested node_modules for performance
-        '**/node_modules/**/.bin/**', // ignore .bin directories
-        '**/node_modules/**/dist/**', // ignore dist in node_modules
-        '**/node_modules/**/build/**', // ignore build in node_modules
-        '**/node_modules/**/coverage/**', // ignore coverage in node_modules
-        '**/node_modules/**/*.d.ts', // ignore TypeScript definitions to reduce noise
+        '**/node_modules/**', // ignore node_modules subdirectories for performance
+        '!node_modules', // but allow the root node_modules folder itself
         '**/\.git/**', // ignore git
         '**/*~', // ignore temp files
         '**/tmp/**', // ignore tmp directories
@@ -48,8 +44,8 @@ export class FileWatcher {
         '**/logs/**', // ignore log directories
         '**/.cache/**', // ignore cache directories
         '**/vendor/**', // ignore vendor directories
-        '**/dist/**', // ignore build directories (but not in node_modules - handled above)
-        '**/build/**', // ignore build directories (but not in node_modules - handled above)
+        '**/dist/**', // ignore build directories
+        '**/build/**', // ignore build directories
       ],
       persistent: true,
       ignoreInitial: true, // Don't scan initial files
@@ -82,7 +78,7 @@ export class FileWatcher {
         filePath,
         timestamp: Date.now()
       });
-      
+
       // Also schedule background database sync with minimal delay
       if (updateTimeout) clearTimeout(updateTimeout);
       updateTimeout = setTimeout(() => {
@@ -159,7 +155,7 @@ export class FileWatcher {
       if (!fs.existsSync(dir)) {
         return null;
       }
-      
+
       const stats = fs.lstatSync(dir);
       if (!stats.isDirectory()) return null;
 
@@ -178,21 +174,21 @@ export class FileWatcher {
         console.error(`Error reading directory ${dir}:`, error);
         return tree; // Return empty folder instead of null
       }
-      
+
       // Filter out problematic items (node_modules, .git, tmp files, etc.)
       const filteredItems = items.filter(item => {
         // Skip hidden files and directories
         if (item.startsWith('.')) return false;
-        
+
         // Skip node_modules to avoid symlink issues
         if (item === 'node_modules') return false;
-        
+
         // Skip temporary files
         if (item.startsWith('tmp') || item.includes('~')) return false;
-        
+
         return true;
       });
-      
+
       // Separate files and folders with better error handling
       const folders: string[] = [];
       const files: string[] = [];
@@ -202,12 +198,12 @@ export class FileWatcher {
         try {
           // Use lstat to handle symlinks properly
           if (!fs.existsSync(itemPath)) continue;
-          
+
           const stat = fs.lstatSync(itemPath);
-          
+
           // Skip symlinks to avoid broken link errors
           if (stat.isSymbolicLink()) continue;
-          
+
           if (stat.isDirectory()) {
             folders.push(item);
           } else if (stat.isFile()) {
