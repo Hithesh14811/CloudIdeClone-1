@@ -175,13 +175,14 @@ export class FileWatcher {
         return tree; // Return empty folder instead of null
       }
 
-      // Filter out problematic items (node_modules, .git, tmp files, etc.)
+      // Filter out problematic items (but allow node_modules folder itself)
       const filteredItems = items.filter(item => {
         // Skip hidden files and directories
         if (item.startsWith('.')) return false;
 
-        // Skip node_modules to avoid symlink issues
-        if (item === 'node_modules') return false;
+        // Allow node_modules folder itself (but we won't recurse into it deeply)
+        // This will show node_modules as a single folder in the tree
+        if (item === 'node_modules') return true;
 
         // Skip temporary files
         if (item.startsWith('tmp') || item.includes('~')) return false;
@@ -220,9 +221,20 @@ export class FileWatcher {
       folders.sort().forEach(folder => {
         const folderPath = path.join(dir, folder);
         const folderRelativePath = path.join(relativePath, folder);
-        const subtree = this.buildFileTree(folderPath, folderRelativePath);
-        if (subtree) {
-          tree.children!.push(subtree);
+        
+        // Special handling for node_modules - show as folder but don't recurse deeply
+        if (folder === 'node_modules') {
+          tree.children!.push({
+            name: folder,
+            type: 'folder',
+            path: folderRelativePath,
+            children: [] // Empty children to avoid deep recursion
+          });
+        } else {
+          const subtree = this.buildFileTree(folderPath, folderRelativePath);
+          if (subtree) {
+            tree.children!.push(subtree);
+          }
         }
       });
 

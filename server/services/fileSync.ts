@@ -211,11 +211,17 @@ export class FileSync {
               isFolder: true
             });
 
-            // Recursively scan subdirectory (with depth limit)
-            const depth = relativePath.split('/').length;
-            if (depth < 10) { // Limit recursion depth
-              const childResults = await this.scanDirectory(fullPath, itemRelativePath);
-              results.push(...childResults);
+            // Special handling for node_modules - show as folder but don't recurse into it
+            if (item === 'node_modules') {
+              // Don't recurse into node_modules to avoid performance issues
+              console.log(`Found node_modules at ${itemRelativePath}, showing as folder only`);
+            } else {
+              // Recursively scan subdirectory (with depth limit)
+              const depth = relativePath.split('/').length;
+              if (depth < 10) { // Limit recursion depth
+                const childResults = await this.scanDirectory(fullPath, itemRelativePath);
+                results.push(...childResults);
+              }
             }
           } else if (stats.isFile()) {
             // Add file with content (limit file size and handle binary files)
@@ -261,7 +267,6 @@ export class FileSync {
 
   private shouldSkipItem(item: string): boolean {
     const skipPatterns = [
-      'node_modules',
       '.git',
       '.cache',
       'dist',

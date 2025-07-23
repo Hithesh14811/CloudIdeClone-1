@@ -262,3 +262,22 @@ The architecture prioritizes developer experience with hot reloading, type safet
   - **Real-time socket events** - files:updated, files:add, files:delete, files:modify
 - **Result**: File tree now behaves exactly like VS Code with instant updates for all operations
 - **Status**: ✓ Production-grade real-time achieved, ✓ Zero polling, ✓ Instant optimistic updates, ✓ Progressive creation working
+
+### January 23, 2025 - Node Modules Visibility Enhancement  
+- **Issue**: `create-react-app` successfully creates files but `node_modules` folder never appears in file tree
+- **Root Cause**: 
+  - File synchronization explicitly ignored `node_modules` directory for performance
+  - File watcher filtered out `node_modules` to avoid thousands of file events
+  - Database sync skipped `node_modules` entirely preventing UI visibility
+- **Resolution**: 
+  - **Modified file watcher** - Allow `node_modules` folder but don't recurse into its contents
+  - **Updated file sync** - Show `node_modules` as a single folder entry without deep scanning
+  - **Enhanced filtering logic** - Display `node_modules` like VS Code (folder only, no children initially)
+  - **Terminal environment** - Verified Node.js v20.19.3 and npm v10.8.2 are available in PATH
+- **Features**:
+  - **VS Code-like behavior** - `node_modules` appears as single folder after `npm install`
+  - **Performance optimized** - No recursion into `node_modules` to avoid UI slowdown
+  - **Proper hierarchy** - Maintains parent-child relationships in database
+  - **CRA compatibility** - `create-react-app` now shows complete project structure
+- **Result**: Users can see `node_modules` folder immediately after npm operations complete
+- **Status**: ✓ Node modules visible, ✓ Performance maintained, ✓ CRA fully supported
