@@ -1086,6 +1086,10 @@ app.use((req, res, next) => {
   // Setup socket handlers
   setupTerminalSocket(io);
   setupPreviewSocket(io);
+  
+  // Set global IO instance for routes to emit real-time events
+  const { setGlobalIO } = await import('./routes');
+  setGlobalIO(io);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -1331,6 +1335,26 @@ import { z } from "zod";
 import { processAIRequest } from "./services/aiAgent";
 import { updatePreviewFiles } from "./services/preview";
 import { getFileSyncForProject } from "./sockets/terminal";
+import { Server as SocketIOServer } from 'socket.io';
+
+// Global variable to store the Socket.IO instance for real-time updates
+let globalIO: SocketIOServer | null = null;
+
+export function setGlobalIO(io: SocketIOServer) {
+  globalIO = io;
+}
+
+function emitFileUpdate(projectId: number, eventType: string) {
+  if (globalIO) {
+    const projectRoom = `project-${projectId}`;
+    globalIO.to(projectRoom).emit('files:updated', {
+      projectId: projectId.toString(),
+      eventType,
+      timestamp: Date.now()
+    });
+    console.log(`Emitted ${eventType} event to room ${projectRoom}`);
+  }
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -1492,6 +1516,10 @@ body {
       });
       
       const file = await storage.createFile(fileData);
+      
+      // Emit real-time event for file creation
+      emitFileUpdate(projectId, 'create');
+      
       res.json(file);
     } catch (error) {
       console.error("Error creating file:", error);
@@ -1521,6 +1549,10 @@ body {
       }).parse(req.body);
       
       const updatedFile = await storage.updateFile(fileId, updates);
+      
+      // Emit real-time event for file update
+      emitFileUpdate(file.projectId, 'update');
+      
       res.json(updatedFile);
     } catch (error) {
       console.error("Error updating file:", error);
@@ -1578,6 +1610,9 @@ body {
         console.error(`Error deleting from filesystem: ${fsError}`);
         // Don't fail the API call if filesystem deletion fails
       }
+      
+      // Emit real-time event for file deletion
+      emitFileUpdate(file.projectId, 'delete');
       
       res.json({ message: "File deleted successfully" });
     } catch (error) {
@@ -2874,6 +2909,7 @@ export const dockerService = new DockerService();
 import { storage } from '../storage';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Server as SocketIOServer } from 'socket.io';
 
 export class FileSync {
   private projectId: number;
@@ -2881,26 +2917,45 @@ export class FileSync {
   private syncTimeout: NodeJS.Timeout | null = null;
   private recentlyDeleted = new Set<string>(); // Track recently deleted file paths
   private deleteTimeout: NodeJS.Timeout | null = null;
+  private io: SocketIOServer | null = null;
 
-  constructor(projectId: number, workspaceDir: string) {
+  constructor(projectId: number, workspaceDir: string, io?: SocketIOServer) {
     this.projectId = projectId;
     this.workspaceDir = workspaceDir;
+    this.io = io || null;
   }
 
-  // Sync filesystem changes to database with debouncing
+  // Sync filesystem changes to database with debouncing and immediate socket events
   async syncWorkspaceToDatabase(): Promise<void> {
     if (this.syncTimeout) {
       clearTimeout(this.syncTimeout);
     }
     
+    // Emit immediate event for real-time UI updates
+    this.emitFileUpdateEvent();
+    
     this.syncTimeout = setTimeout(async () => {
       try {
         await this.performSync();
         console.log(`File sync completed for project ${this.projectId}`);
+        // Emit final event after database sync completes
+        this.emitFileUpdateEvent();
       } catch (error) {
         console.error('File sync error:', error);
       }
-    }, 500); // Debounce for 0.5 seconds for faster updates
+    }, 300); // Reduced to 300ms for even faster updates
+  }
+
+  // Emit socket event for real-time frontend updates
+  private emitFileUpdateEvent(): void {
+    if (this.io) {
+      const projectRoom = `project-${this.projectId}`;
+      this.io.to(projectRoom).emit('files:updated', { 
+        projectId: this.projectId.toString(),
+        timestamp: Date.now()
+      });
+      console.log(`Emitted files:updated event to room ${projectRoom}`);
+    }
   }
 
   private async performSync(): Promise<void> {
@@ -3200,7 +3255,7 @@ export class FileSync {
   markAsDeleted(filePath: string): void {
     this.recentlyDeleted.add(filePath);
     
-    // Clear the deleted flag after 30 seconds
+    // Clear the deleted flag after some time to avoid memory leaks
     if (this.deleteTimeout) {
       clearTimeout(this.deleteTimeout);
     }
@@ -3255,11 +3310,11 @@ export class FileWatcher {
       this.stop();
     }
 
-    // Watch the directory for changes with optimized settings for real-time updates
+    // Watch the directory for changes with ultra-fast settings for progressive file creation
     this.watcher = chokidar.watch(this.watchPath, {
       ignored: [
         /(^|[\/\\])\../, // ignore dotfiles
-        '**/node_modules/**/node_modules/**', // ignore nested node_modules only
+        '**/node_modules/**/node_modules/**', // allow first-level node_modules for npm install visibility
         '**/\.git/**', // ignore git
         '**/*~', // ignore temp files
         '**/tmp/**', // ignore tmp directories
@@ -3273,18 +3328,18 @@ export class FileWatcher {
         '**/vendor/**', // ignore vendor directories
       ],
       persistent: true,
-      ignoreInitial: true, // Don't scan initial files, reduces load
-      depth: 10, // Increased depth to catch more nested structures
+      ignoreInitial: true, // Don't scan initial files
+      depth: 15, // Higher depth for better nested structure detection
       awaitWriteFinish: {
-        stabilityThreshold: 50, // Much faster detection for real-time updates
-        pollInterval: 25
+        stabilityThreshold: 25, // Ultra-fast detection for real-time updates
+        pollInterval: 10 // Very fast polling for immediate detection
       },
       followSymlinks: false,
       ignorePermissionErrors: true,
       atomic: true,
-      usePolling: false, // Use native file system events for better performance
-      interval: 500, // Faster polling if needed
-      binaryInterval: 1000, // Faster polling for binary files
+      usePolling: false, // Use native file system events for maximum speed
+      interval: 100, // Faster fallback polling
+      binaryInterval: 500, // Faster binary file detection
       alwaysStat: false // Don't stat files unless needed
     });
 
@@ -3293,33 +3348,44 @@ export class FileWatcher {
       this.sendFileTreeUpdate();
     }, 100);
 
-    // Listen for changes with minimal throttling for maximum real-time response
+    // Listen for changes with immediate socket emissions for instant UI updates
     let updateTimeout: NodeJS.Timeout | null = null;
-    const throttledUpdate = () => {
+    const throttledUpdate = (eventType?: string, filePath?: string) => {
       if (updateTimeout) clearTimeout(updateTimeout);
+      
+      // Emit immediate socket event for real-time frontend updates
+      this.socket.emit('files:updated', { 
+        projectId: this.projectId,
+        eventType,
+        filePath,
+        timestamp: Date.now()
+      });
+      
       updateTimeout = setTimeout(() => {
         this.sendFileTreeUpdate();
-        updateTimeout = null;
-      }, 25); // Ultra-fast throttling for real-time updates - max every 25ms
+      }, 25); // Ultra-fast throttling for progressive file creation visibility
     };
 
     this.watcher
       .on('add', (path) => {
         console.log('File added:', path);
-        throttledUpdate();
+        throttledUpdate('add', path);
       })
       .on('addDir', (path) => {
         console.log('Directory added:', path);
-        throttledUpdate();
+        throttledUpdate('addDir', path);
       })
-      .on('change', throttledUpdate)
+      .on('change', (path) => {
+        console.log('File modified:', path);
+        throttledUpdate('change', path);
+      })
       .on('unlink', (path) => {
         console.log('File removed:', path);
-        throttledUpdate();
+        throttledUpdate('unlink', path);
       })
       .on('unlinkDir', (path) => {
         console.log('Directory removed:', path);
-        throttledUpdate();
+        throttledUpdate('unlinkDir', path);
       })
       .on('error', (error: any) => {
         // Handle ENOSPC errors gracefully
@@ -3820,6 +3886,19 @@ export function setupTerminalSocket(io: SocketIOServer) {
   io.on('connection', (socket) => {
     console.log('Terminal socket connected:', socket.id);
 
+    // Handle project room joining for real-time file updates
+    socket.on('join-project', (data: { projectId: string }) => {
+      const projectRoom = `project-${data.projectId}`;
+      socket.join(projectRoom);
+      console.log(`Socket ${socket.id} joined project room ${projectRoom}`);
+    });
+
+    socket.on('leave-project', (data: { projectId: string }) => {
+      const projectRoom = `project-${data.projectId}`;
+      socket.leave(projectRoom);
+      console.log(`Socket ${socket.id} left project room ${projectRoom}`);
+    });
+
     socket.on('terminal:start', async (data: { projectId: string, userId: string }) => {
       try {
         const { projectId, userId } = data;
@@ -3908,7 +3987,7 @@ export function setupTerminalSocket(io: SocketIOServer) {
 
         // Create file watcher and file sync for this project
         const fileWatcher = new FileWatcher(socket, workingDir, projectId);
-        const fileSync = new FileSync(parseInt(projectId), workingDir);
+        const fileSync = new FileSync(parseInt(projectId), workingDir, io);
         fileWatcher.start();
 
         const session: TerminalSession = {
@@ -4756,34 +4835,41 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     }
   }, [onFileTreeUpdateReceiver, queryClient, projectId]);
 
-  // Set up socket connection for manual refresh and real-time updates
+  // Set up socket connection for real-time file updates
   useEffect(() => {
     if (!socketRef.current) {
       socketRef.current = io();
     }
 
-    // Listen for file changes from terminal
-    const handleFileChanges = (data: any) => {
-      console.log('Files changed via socket:', data);
-      if (data.projectId === projectId || parseInt(data.projectId) === projectId) {
-        // Keep loading indicator hidden for socket updates too
+    const socket = socketRef.current;
+    
+    // Join project room for targeted updates
+    socket.emit('join-project', { projectId: projectId.toString() });
+
+    // Listen for real-time file updates
+    const handleFileUpdates = (data: any) => {
+      console.log('Real-time file update:', data);
+      if (data.projectId === projectId.toString() || parseInt(data.projectId) === projectId) {
+        // Keep loading indicator hidden for socket updates
         setShowLoadingIndicator(false);
-        // Force complete refresh immediately for ultra-fast updates
+        // Force complete refresh immediately for instant updates
         setRefreshKey(prev => prev + 1);
-        // Keep expanded folders intact during socket updates too
-        // Don't reset expandedFolders to preserve user state
+        // Preserve expanded folder state during updates
       }
     };
 
-    socketRef.current.on('files:changed', handleFileChanges);
-    socketRef.current.on('file-tree-update', handleFileChanges);
+    socket.on('files:updated', handleFileUpdates);
+    socket.on('file-tree-update', handleFileUpdates);
+    socket.on('files:changed', handleFileUpdates);
 
     return () => {
-      if (socketRef.current) {
-        socketRef.current.off('files:changed', handleFileChanges);
-        socketRef.current.off('file-tree-update', handleFileChanges);
-        socketRef.current.disconnect();
-      }
+      // Leave project room when component unmounts
+      socket.emit('leave-project', { projectId: projectId.toString() });
+      socket.off('files:updated', handleFileUpdates);
+      socket.off('file-tree-update', handleFileUpdates);
+      socket.off('files:changed', handleFileUpdates);
+      socket.disconnect();
+      socketRef.current = null;
     };
   }, [projectId, queryClient]);
 
