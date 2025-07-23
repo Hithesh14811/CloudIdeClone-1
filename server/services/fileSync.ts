@@ -189,7 +189,13 @@ export class FileSync {
       for (const item of items) {
         // Skip problematic directories and files
         if (this.shouldSkipItem(item)) {
+          console.log(`Skipping item: ${item}`);
           continue;
+        }
+        
+        // Debug logging for node_modules
+        if (item === 'node_modules') {
+          console.log(`Processing node_modules in scanDirectory at ${dir}`);
         }
 
         const fullPath = path.join(dir, item);
@@ -214,7 +220,7 @@ export class FileSync {
             // Special handling for node_modules - show as folder but don't recurse into it
             if (item === 'node_modules') {
               // Don't recurse into node_modules to avoid performance issues
-              console.log(`Found node_modules at ${itemRelativePath}, showing as folder only`);
+              console.log(`Found node_modules at ${itemRelativePath}, adding as folder to database`);
             } else {
               // Recursively scan subdirectory (with depth limit)
               const depth = relativePath.split('/').length;
@@ -323,7 +329,22 @@ export class FileSync {
       clearTimeout(this.syncTimeout);
       this.syncTimeout = null;
     }
+    console.log(`Force sync now called for project ${this.projectId} at ${this.workspaceDir}`);
     await this.performSync();
+    console.log(`Force sync completed for project ${this.projectId}`);
+  }
+
+  // Add cleanup method that may be referenced
+  cleanup(): void {
+    if (this.syncTimeout) {
+      clearTimeout(this.syncTimeout);
+      this.syncTimeout = null;
+    }
+    if (this.deleteTimeout) {
+      clearTimeout(this.deleteTimeout);
+      this.deleteTimeout = null;
+    }
+    console.log(`FileSync cleanup completed for project ${this.projectId}`);
   }
 
   // Fix hierarchy for existing database files
