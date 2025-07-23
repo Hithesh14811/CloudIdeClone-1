@@ -198,7 +198,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
           // Use regular refetch instead of refreshKey for better performance
           refetch();
         }
-      }, 30000); // Refresh every 30 seconds for optimal performance
+      }, 500); // Refresh every 0.5 seconds for fast terminal sync
     };
 
     if (projectId) {
@@ -330,8 +330,16 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       });
     },
     onSuccess: (deletedIds: number[]) => {
-      // Invalidate and refetch to ensure consistency
+      // Force complete refresh to ensure UI updates
+      setRefreshKey(prev => prev + 1);
+      
+      // Also invalidate and refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+      queryClient.refetchQueries({ queryKey: ['project-files', projectId] });
+      
+      // Clear selections after successful delete
+      setSelectedFiles(new Set());
+      setSelectMode(false);
       
       // Show success message with count
       toast({
@@ -380,7 +388,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     if (window.confirm(`Are you sure you want to delete ${selectedCount} selected item${selectedCount === 1 ? '' : 's'}?`)) {
       const selectedArray = Array.from(selectedFiles);
       bulkDeleteMutation.mutate(selectedArray);
-      setSelectedFiles(new Set());
+      // Don't clear selections here - let onSuccess handle it
     }
   };
 
