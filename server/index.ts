@@ -12,6 +12,9 @@ import {
   sanitizeErrorResponse,
   healthCheck
 } from './middleware/security';
+import { storage } from './storage';
+import { dockerService } from './services/docker';
+import { fileSyncRegistry } from './services/fileSync';
 
 const app = express();
 
@@ -114,22 +117,210 @@ app.get('/api/health', healthCheck);
     process.exit(1);
   }
   
-  // Setup Socket.IO with security configuration
+  // Socket.IO setup with proper terminal integration
   const io = new SocketIOServer(server, {
     cors: {
-      origin: process.env.NODE_ENV === 'production' 
-        ? (process.env.CORS_ORIGIN?.split(',') || [])
-        : ["http://localhost:5000", "http://localhost:3000"],
+      origin: process.env.CLIENT_URL || "http://localhost:5173",
       methods: ["GET", "POST"],
       credentials: true
     },
-    transports: ['websocket', 'polling'],
-    pingTimeout: 60000,
-    pingInterval: 25000,
-    upgradeTimeout: 30000,
-    maxHttpBufferSize: 1e6, // 1MB limit
-    allowEIO3: false // Disable older protocol versions
+    transports: ['websocket', 'polling']
   });
+
+  // Store global IO instance for services
+  let globalIO: SocketIOServer;
+
+  // Enhanced Socket.IO connection handling
+  io.on('connection', (socket) => {
+    console.log('Socket connected:', socket.id);
+    
+    // Terminal functionality with Docker integration
+    socket.on('terminal:start', async (data: { projectId: string, userId: string }) => {
+      try {
+        const { projectId, userId } = data;
+        console.log(`Starting terminal for project ${projectId}, user ${userId}`);
+        
+        // Get project files for Docker container
+        const files = await storage.getProjectFiles(parseInt(projectId));
+        
+        // Create Docker container session
+        const containerSession = await dockerService.createContainer(projectId, userId, files);
+        
+        // Set up file sync for real-time updates
+        const workspaceDir = containerSession.workingDir;
+        const fileSync = fileSyncRegistry.getOrCreate(parseInt(projectId), workspaceDir, io);
+        
+        // Emit ready event with session details
+        socket.emit('terminal:ready', {
+          sessionId: containerSession.id,
+          cols: 80,
+          rows: 24,
+          workingDir: workspaceDir
+        });
+        
+        // Join project room for file updates
+        socket.join(`project-${projectId}`);
+        
+      } catch (error) {
+        console.error('Terminal start error:', error);
+        socket.emit('terminal:error', { 
+          message: error.message || 'Failed to start terminal' 
+        });
+      }
+    });
+
+    socket.on('terminal:input', async (data: { sessionId: string, input: string }) => {
+      try {
+        const { sessionId, input } = data;
+        
+        // Get container session
+        const session = dockerService.getSession(sessionId);
+        if (!session) {
+          socket.emit('terminal:error', { message: 'Terminal session not found' });
+          return;
+        }
+        
+        // Execute command in Docker container
+        const childProcess = await dockerService.executeCommand(sessionId, input);
+        
+        // Stream output to client
+        childProcess.stdout?.on('data', (data) => {
+          socket.emit('terminal:output', data.toString());
+        });
+        
+        childProcess.stderr?.on('data', (data) => {
+          socket.emit('terminal:output', data.toString());
+        });
+        
+        childProcess.on('exit', (code) => {
+          socket.emit('terminal:exit', { code: code || 0 });
+          
+          // Trigger file sync after command execution
+          const fileSync = fileSyncRegistry.get(parseInt(session.projectId));
+          if (fileSync) {
+            fileSync.syncWorkspaceToDatabase().catch(console.error);
+          }
+        });
+        
+      } catch (error) {
+        console.error('Terminal input error:', error);
+        socket.emit('terminal:error', { 
+          message: error.message || 'Command execution failed' 
+        });
+      }
+    });
+
+    socket.on('terminal:resize', (data: { sessionId: string, cols: number, rows: number }) => {
+      try {
+        const { sessionId, cols, rows } = data;
+        // Docker containers handle resize differently - log for now
+        console.log(`Terminal resize for ${sessionId}: ${cols}x${rows}`);
+      } catch (error) {
+        console.error('Terminal resize error:', error);
+      }
+    });
+
+    socket.on('terminal:stop', async (data: { sessionId: string }) => {
+      try {
+        const { sessionId } = data;
+        await dockerService.destroyContainer(sessionId);
+        socket.emit('terminal:stopped');
+      } catch (error) {
+        console.error('Terminal stop error:', error);
+      }
+    });
+
+    // File operations with real-time sync
+    socket.on('file:create', async (data: { projectId: string, name: string, type: string, parentId?: number, content?: string }) => {
+      try {
+        const file = await storage.createFile({
+          ...data,
+          projectId: parseInt(data.projectId)
+        });
+        
+        // Trigger file sync
+        const fileSync = fileSyncRegistry.get(parseInt(data.projectId));
+        if (fileSync) {
+          fileSync.emitFileEvent('create', file.path, { fileId: file.id });
+        }
+        
+        socket.emit('file:created', file);
+        io.to(`project-${data.projectId}`).emit('file-tree-update', { projectId: data.projectId });
+        
+      } catch (error) {
+        console.error('File create error:', error);
+        socket.emit('file:error', { message: 'Failed to create file' });
+      }
+    });
+
+    socket.on('file:update', async (data: { fileId: number, content: string, projectId: string }) => {
+      try {
+        await storage.updateFile(data.fileId, { content: data.content });
+        
+        // Trigger file sync
+        const fileSync = fileSyncRegistry.get(parseInt(data.projectId));
+        if (fileSync) {
+          const file = await storage.getFile(data.fileId);
+          if (file) {
+            fileSync.emitFileEvent('update', file.path, { fileId: file.id });
+          }
+        }
+        
+        socket.emit('file:updated', { fileId: data.fileId });
+        io.to(`project-${data.projectId}`).emit('file-tree-update', { projectId: data.projectId });
+        
+      } catch (error) {
+        console.error('File update error:', error);
+        socket.emit('file:error', { message: 'Failed to update file' });
+      }
+    });
+
+    socket.on('file:delete', async (data: { fileId: number, projectId: string }) => {
+      try {
+        const file = await storage.getFile(data.fileId);
+        if (file) {
+          // Mark as deleted in file sync
+          const fileSync = fileSyncRegistry.get(parseInt(data.projectId));
+          if (fileSync) {
+            fileSync.markAsDeleted(file.path);
+          }
+          
+          await storage.deleteFile(data.fileId);
+          
+          socket.emit('file:deleted', { fileId: data.fileId });
+          io.to(`project-${data.projectId}`).emit('file-tree-update', { projectId: data.projectId });
+        }
+      } catch (error) {
+        console.error('File delete error:', error);
+        socket.emit('file:error', { message: 'Failed to delete file' });
+      }
+    });
+
+    // Project room management
+    socket.on('join-project', (data: { projectId: string }) => {
+      socket.join(`project-${data.projectId}`);
+      console.log(`Socket ${socket.id} joined project ${data.projectId}`);
+    });
+
+    socket.on('leave-project', (data: { projectId: string }) => {
+      socket.leave(`project-${data.projectId}`);
+      console.log(`Socket ${socket.id} left project ${data.projectId}`);
+    });
+
+    // Disconnect cleanup
+    socket.on('disconnect', () => {
+      console.log('Socket disconnected:', socket.id);
+      // Cleanup any active terminal sessions for this socket
+      const sessions = dockerService.getAllSessions();
+      for (const session of sessions) {
+        // Note: In production, you'd want to associate sessions with socket IDs
+        // For now, sessions will be cleaned up by the timeout mechanism
+      }
+    });
+  });
+
+  // Store global IO reference
+  globalIO = io;
   
   // Socket.IO middleware for authentication
   io.use(async (socket, next) => {

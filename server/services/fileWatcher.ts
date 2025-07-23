@@ -1,20 +1,14 @@
-import * as chokidar from 'chokidar';
-import * as fs from 'fs';
-import * as path from 'path';
+import chokidar from 'chokidar';
 import { Socket } from 'socket.io';
-
-export interface FileTreeNode {
-  name: string;
-  type: 'file' | 'folder';
-  path: string;
-  children?: FileTreeNode[];
-}
+import { join } from 'path';
+import { existsSync } from 'fs';
 
 export class FileWatcher {
   private watcher: chokidar.FSWatcher | null = null;
   private socket: Socket;
   private watchPath: string;
   private projectId: string;
+  private isWatching = false;
 
   constructor(socket: Socket, watchPath: string, projectId: string) {
     this.socket = socket;
@@ -23,223 +17,103 @@ export class FileWatcher {
   }
 
   start() {
-    if (this.watcher) {
-      this.stop();
+    if (this.watcher || !existsSync(this.watchPath)) {
+      return;
     }
 
-    // Watch the directory for changes with progressive file creation support
+    console.log(`Starting file watcher for project ${this.projectId} at ${this.watchPath}`);
+
     this.watcher = chokidar.watch(this.watchPath, {
       ignored: [
         /(^|[\/\\])\../, // ignore dotfiles
-        '**/node_modules/**', // ignore node_modules subdirectories for performance
-        '!node_modules', // but allow the root node_modules folder itself
-        '**/\.git/**', // ignore git
-        '**/*~', // ignore temp files
-        '**/tmp/**', // ignore tmp directories
-        '**/*.tmp', // ignore tmp files
-        '**/coverage/**', // ignore coverage
-        '**/.next/**', // ignore Next.js build
-        '**/.nuxt/**', // ignore Nuxt build
-        '**/*.log', // ignore log files
-        '**/logs/**', // ignore log directories
-        '**/.cache/**', // ignore cache directories
-        '**/vendor/**', // ignore vendor directories
-        '**/dist/**', // ignore build directories
-        '**/build/**', // ignore build directories
+        '**/node_modules/**',
+        '**/\.git/**',
+        '**/*~',
+        '**/tmp/**',
+        '**/*.tmp',
+        '**/coverage/**',
+        '**/.next/**',
+        '**/.nuxt/**',
+        '**/*.log',
+        '**/logs/**',
+        '**/.cache/**',
+        '**/vendor/**',
       ],
       persistent: true,
-      ignoreInitial: true, // Don't scan initial files
-      depth: 10, // Optimized depth for performance vs visibility
+      ignoreInitial: true,
+      depth: 15,
       awaitWriteFinish: {
-        stabilityThreshold: 15, // Ultra-fast detection for progressive updates
-        pollInterval: 5 // Very fast polling for immediate detection
+        stabilityThreshold: 100,
+        pollInterval: 25
       },
       followSymlinks: false,
       ignorePermissionErrors: true,
       atomic: true,
-      usePolling: false, // Use native file system events for maximum speed
-      interval: 50, // Faster fallback polling
-      binaryInterval: 200, // Faster binary file detection
-      alwaysStat: false // Don't stat files unless needed
+      usePolling: false,
+      interval: 100,
+      binaryInterval: 500,
+      alwaysStat: false
     });
 
-    // Send initial file tree
-    setTimeout(() => {
-      this.sendFileTreeUpdate();
-    }, 100);
+    // File change events
+    this.watcher.on('add', (filePath) => {
+      this.emitFileChange('add', filePath);
+    });
 
-    // Listen for changes with immediate socket emissions for instant progressive updates
-    let updateTimeout: NodeJS.Timeout | null = null;
-    const immediateUpdate = (eventType: string, filePath: string) => {
-      // Emit immediate socket event for instant UI updates
-      this.socket.emit('files:updated', { 
-        projectId: this.projectId,
-        eventType,
-        filePath,
-        timestamp: Date.now()
-      });
+    this.watcher.on('change', (filePath) => {
+      this.emitFileChange('change', filePath);
+    });
 
-      // Also schedule background database sync with minimal delay
-      if (updateTimeout) clearTimeout(updateTimeout);
-      updateTimeout = setTimeout(() => {
-        this.sendFileTreeUpdate();
-        updateTimeout = null;
-      }, 5); // 5ms for ultra-fast progressive updates
-    };
+    this.watcher.on('unlink', (filePath) => {
+      this.emitFileChange('unlink', filePath);
+    });
 
-    this.watcher
-      .on('add', (path) => {
-        console.log('File added:', path);
-        immediateUpdate('add', path);
-      })
-      .on('addDir', (path) => {
-        console.log('Directory added:', path);
-        immediateUpdate('addDir', path);
-      })
-      .on('change', (path) => {
-        console.log('File changed:', path);
-        immediateUpdate('change', path);
-      })
-      .on('unlink', (path) => {
-        console.log('File removed:', path);
-        immediateUpdate('unlink', path);
-      })
-      .on('unlinkDir', (path) => {
-        console.log('Directory removed:', path);
-        immediateUpdate('unlinkDir', path);
-      })
-      .on('error', (error: any) => {
-        // Handle ENOSPC errors gracefully
-        if (error?.code === 'ENOSPC') {
-          console.warn('File watcher limit reached, trying to continue with reduced watching');
-          // Don't crash, just log and continue
-        } else {
-          console.error('File watcher error:', error);
-        }
-      });
+    this.watcher.on('addDir', (dirPath) => {
+      this.emitFileChange('addDir', dirPath);
+    });
 
-    console.log(`File watcher started for project ${this.projectId} at ${this.watchPath}`);
+    this.watcher.on('unlinkDir', (dirPath) => {
+      this.emitFileChange('unlinkDir', dirPath);
+    });
+
+    this.watcher.on('error', (error) => {
+      console.error(`File watcher error for project ${this.projectId}:`, error);
+    });
+
+    this.isWatching = true;
+    console.log(`File watcher started for project ${this.projectId}`);
+  }
+
+  private emitFileChange(eventType: string, filePath: string) {
+    const relativePath = filePath.replace(this.watchPath, '').replace(/^[\/\\]/, '');
+    
+    console.log(`File ${eventType}: ${relativePath} in project ${this.projectId}`);
+    
+    // Emit to the specific socket
+    this.socket.emit('file-change', {
+      projectId: this.projectId,
+      eventType,
+      filePath: relativePath,
+      timestamp: new Date().toISOString()
+    });
+
+    // Also emit file tree update
+    this.socket.emit('file-tree-update', {
+      projectId: this.projectId,
+      timestamp: new Date().toISOString()
+    });
   }
 
   stop() {
     if (this.watcher) {
+      console.log(`Stopping file watcher for project ${this.projectId}`);
       this.watcher.close();
       this.watcher = null;
-      console.log(`File watcher stopped for project ${this.projectId}`);
+      this.isWatching = false;
     }
   }
 
-  sendFileTreeUpdate() {
-    try {
-      const tree = this.buildFileTree(this.watchPath);
-      if (tree) {
-        this.socket.emit('file-tree-update', {
-          projectId: this.projectId,
-          tree: tree.children || []
-        });
-      }
-    } catch (error) {
-      console.error('Error building file tree:', error);
-    }
-  }
-
-  // Manual refresh method for when automatic updates fail
-  forceRefresh() {
-    console.log(`Force refreshing file tree for project ${this.projectId}`);
-    this.sendFileTreeUpdate();
-  }
-
-  private buildFileTree(dir: string, relativePath: string = ''): FileTreeNode | null {
-    try {
-      // Check if directory exists and is accessible
-      if (!fs.existsSync(dir)) {
-        return null;
-      }
-
-      const stats = fs.lstatSync(dir);
-      if (!stats.isDirectory()) return null;
-
-      const name = path.basename(dir);
-      const tree: FileTreeNode = {
-        name: name || 'root',
-        type: 'folder',
-        path: relativePath,
-        children: []
-      };
-
-      let items: string[] = [];
-      try {
-        items = fs.readdirSync(dir);
-      } catch (error) {
-        console.error(`Error reading directory ${dir}:`, error);
-        return tree; // Return empty folder instead of null
-      }
-
-      // Filter out problematic items (node_modules, .git, tmp files, etc.)
-      const filteredItems = items.filter(item => {
-        // Skip hidden files and directories
-        if (item.startsWith('.')) return false;
-
-        // Skip node_modules to avoid symlink issues
-        if (item === 'node_modules') return false;
-
-        // Skip temporary files
-        if (item.startsWith('tmp') || item.includes('~')) return false;
-
-        return true;
-      });
-
-      // Separate files and folders with better error handling
-      const folders: string[] = [];
-      const files: string[] = [];
-
-      for (const item of filteredItems) {
-        const itemPath = path.join(dir, item);
-        try {
-          // Use lstat to handle symlinks properly
-          if (!fs.existsSync(itemPath)) continue;
-
-          const stat = fs.lstatSync(itemPath);
-
-          // Skip symlinks to avoid broken link errors
-          if (stat.isSymbolicLink()) continue;
-
-          if (stat.isDirectory()) {
-            folders.push(item);
-          } else if (stat.isFile()) {
-            files.push(item);
-          }
-        } catch (statError) {
-          // Skip items that can't be accessed
-          console.error(`Error accessing ${itemPath}:`, statError);
-          continue;
-        }
-      }
-
-      // Add folders first (sorted)
-      folders.sort().forEach(folder => {
-        const folderPath = path.join(dir, folder);
-        const folderRelativePath = path.join(relativePath, folder);
-        const subtree = this.buildFileTree(folderPath, folderRelativePath);
-        if (subtree) {
-          tree.children!.push(subtree);
-        }
-      });
-
-      // Add files (sorted)
-      files.sort().forEach(file => {
-        const fileRelativePath = path.join(relativePath, file);
-        tree.children!.push({
-          name: file,
-          type: 'file',
-          path: fileRelativePath
-        });
-      });
-
-      return tree;
-    } catch (error) {
-      console.error(`Error reading directory ${dir}:`, error);
-      return null;
-    }
+  isActive(): boolean {
+    return this.isWatching && this.watcher !== null;
   }
 }
