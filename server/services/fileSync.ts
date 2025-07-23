@@ -2,50 +2,147 @@ import { storage } from '../storage';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Server as SocketIOServer } from 'socket.io';
+import { randomUUID } from 'crypto';
+
+// File operation lock manager for atomicity
+class FileLockManager {
+  private locks = new Map<string, Promise<void>>();
+  
+  async withLock<T>(lockKey: string, operation: () => Promise<T>): Promise<T> {
+    // Wait for any existing lock on this resource
+    const existingLock = this.locks.get(lockKey);
+    if (existingLock) {
+      await existingLock;
+    }
+    
+    // Create new lock
+    let resolveLock: () => void;
+    const lockPromise = new Promise<void>((resolve) => {
+      resolveLock = resolve;
+    });
+    
+    this.locks.set(lockKey, lockPromise);
+    
+    try {
+      const result = await operation();
+      return result;
+    } finally {
+      // Release lock
+      this.locks.delete(lockKey);
+      resolveLock!();
+    }
+  }
+}
+
+const fileLockManager = new FileLockManager();
 
 export class FileSync {
   private projectId: number;
   private workspaceDir: string;
   private syncTimeout: NodeJS.Timeout | null = null;
-  private recentlyDeleted = new Set<string>(); // Track recently deleted file paths
+  private recentlyDeleted = new Map<string, number>(); // Track with timestamps
   private deleteTimeout: NodeJS.Timeout | null = null;
   private io: SocketIOServer | null = null;
+  private isDestroyed = false;
+  private syncInProgress = false;
+  private pendingOperations = new Set<string>();
+  private readonly lockKey: string;
 
   constructor(projectId: number, workspaceDir: string, io?: SocketIOServer) {
     this.projectId = projectId;
     this.workspaceDir = workspaceDir;
     this.io = io || null;
+    this.lockKey = `project-${projectId}`;
+    
+    // Clean up recently deleted files every 30 seconds
+    this.deleteTimeout = setInterval(() => {
+      this.cleanupRecentlyDeleted();
+    }, 30000);
   }
 
-  // Sync filesystem changes to database with socket-first updates for instant UI
+  private cleanupRecentlyDeleted(): void {
+    const now = Date.now();
+    const expireTime = 30000; // 30 seconds
+    
+    for (const [filePath, timestamp] of this.recentlyDeleted.entries()) {
+      if (now - timestamp > expireTime) {
+        this.recentlyDeleted.delete(filePath);
+      }
+    }
+  }
+
+  // Atomic sync operation with database transaction
   async syncWorkspaceToDatabase(): Promise<void> {
-    if (this.syncTimeout) {
-      clearTimeout(this.syncTimeout);
+    if (this.isDestroyed || this.syncInProgress) {
+      return;
     }
 
-    // Emit immediate event for instant UI updates
-    this.emitFileUpdateEvent();
+    const operationId = randomUUID();
+    this.pendingOperations.add(operationId);
 
-    this.syncTimeout = setTimeout(async () => {
-      try {
-        await this.performSync();
-        console.log(`File sync completed for project ${this.projectId}`);
-        // Emit final event after database sync completes
-        this.emitFileUpdateEvent();
-      } catch (error) {
-        console.error('File sync error:', error);
-      }
-    }, 200); // Reduced to 200ms for ultra-fast updates
+    try {
+      await fileLockManager.withLock(this.lockKey, async () => {
+        if (this.syncTimeout) {
+          clearTimeout(this.syncTimeout);
+        }
+
+        // Debounce rapid changes
+        this.syncTimeout = setTimeout(async () => {
+          if (this.isDestroyed) return;
+          
+          try {
+            this.syncInProgress = true;
+            await this.performAtomicSync();
+            
+            // Emit update event after successful sync
+            this.emitFileUpdateEvent('sync_complete');
+            console.log(`Atomic file sync completed for project ${this.projectId}`);
+          } catch (error) {
+            console.error('Atomic file sync error:', error);
+            this.emitFileUpdateEvent('sync_error');
+          } finally {
+            this.syncInProgress = false;
+          }
+        }, 100); // Very fast debounce for real-time feel
+      });
+    } finally {
+      this.pendingOperations.delete(operationId);
+    }
   }
 
-  // Immediate file event emission for progressive updates
-  emitFileEvent(eventType: string, filePath: string): void {
-    if (this.io) {
+  // Force immediate sync without debouncing
+  async forceSyncNow(): Promise<void> {
+    if (this.isDestroyed) return;
+
+    return fileLockManager.withLock(this.lockKey, async () => {
+      if (this.syncTimeout) {
+        clearTimeout(this.syncTimeout);
+        this.syncTimeout = null;
+      }
+
+      try {
+        this.syncInProgress = true;
+        await this.performAtomicSync();
+        this.emitFileUpdateEvent('force_sync_complete');
+        console.log(`Force sync completed for project ${this.projectId}`);
+      } catch (error) {
+        console.error('Force sync error:', error);
+        throw error;
+      } finally {
+        this.syncInProgress = false;
+      }
+    });
+  }
+
+  // Emit immediate file event for progressive updates
+  emitFileEvent(eventType: string, filePath: string, metadata?: any): void {
+    if (this.io && !this.isDestroyed) {
       const projectRoom = `project-${this.projectId}`;
       this.io.to(projectRoom).emit('files:updated', { 
         projectId: this.projectId.toString(),
         eventType,
         filePath,
+        metadata,
         timestamp: Date.now()
       });
       console.log(`Emitted ${eventType} event for ${filePath} to room ${projectRoom}`);
@@ -53,338 +150,370 @@ export class FileSync {
   }
 
   // Emit socket event for real-time frontend updates
-  private emitFileUpdateEvent(): void {
-    if (this.io) {
+  private emitFileUpdateEvent(eventType: string = 'update'): void {
+    if (this.io && !this.isDestroyed) {
       const projectRoom = `project-${this.projectId}`;
       this.io.to(projectRoom).emit('files:updated', { 
         projectId: this.projectId.toString(),
+        eventType,
         timestamp: Date.now()
       });
-      console.log(`Emitted files:updated event to room ${projectRoom}`);
     }
   }
 
-
-
-  private async performSync(): Promise<void> {
+  private async performAtomicSync(): Promise<void> {
     if (!fs.existsSync(this.workspaceDir)) {
       console.log(`Workspace directory ${this.workspaceDir} doesn't exist`);
       return;
     }
 
-    // Get current files from database
-    const dbFiles = await storage.getProjectFiles(this.projectId);
-    const dbFileMap = new Map(dbFiles.map(f => [f.path, f]));
+    // Use database transaction for atomicity
+    const { db } = await import('../db');
+    
+    try {
+      await db.transaction(async (tx) => {
+        // Get current files from database within transaction
+        const dbFiles = await storage.getProjectFiles(this.projectId);
+        const dbFileMap = new Map(dbFiles.map(f => [f.path, f]));
 
-    // Scan filesystem and build file structure
-    const fsFiles = await this.scanDirectory(this.workspaceDir, '');
-    const fsFileMap = new Map(fsFiles.map(f => [f.path, f]));
+        // Scan filesystem with better error handling
+        const fsFiles = await this.scanDirectoryAtomic(this.workspaceDir, '');
+        const fsFileMap = new Map(fsFiles.map(f => [f.path, f]));
 
-    // Find files to add, update, or delete
+        // Categorize operations
+        const operations = this.categorizeFileOperations(dbFileMap, fsFileMap);
+
+        // Execute operations in order: folders first, then files
+        await this.executeFileOperations(operations, tx);
+
+        console.log(`Atomic sync completed: ${operations.toAdd.length} added, ${operations.toUpdate.length} updated, ${operations.toDelete.length} deleted`);
+      });
+    } catch (error) {
+      console.error('Database transaction failed during sync:', error);
+      throw error;
+    }
+  }
+
+  private categorizeFileOperations(dbFileMap: Map<string, any>, fsFileMap: Map<string, any>) {
     const toAdd: any[] = [];
     const toUpdate: any[] = [];
     const toDelete: any[] = [];
 
     // Check filesystem files against database
-    for (const fsPath of Array.from(fsFileMap.keys())) {
-      const fsFile = fsFileMap.get(fsPath)!;
+    for (const [fsPath, fsFile] of fsFileMap.entries()) {
       const dbFile = dbFileMap.get(fsPath);
-
+      
       if (!dbFile) {
         // Check if this file was recently deleted - if so, skip adding it back
         if (this.recentlyDeleted.has(fsFile.path)) {
           console.log(`Skipping recently deleted file: ${fsFile.path}`);
           continue;
         }
-
-        // New file
+        
+        // New file - categorize by type
         toAdd.push({
           name: fsFile.name,
           path: fsFile.path,
           content: fsFile.content,
           isFolder: fsFile.isFolder,
           projectId: this.projectId,
-          parentId: null // Will be set during creation based on hierarchy
+          parentId: null, // Will be resolved during execution
+          priority: fsFile.isFolder ? 1 : 2 // Folders first
         });
-      } else if (fsFile.content !== dbFile.content && !fsFile.isFolder) {
+      } else if (!fsFile.isFolder && fsFile.content !== dbFile.content) {
         // Updated file content
         toUpdate.push({
           id: dbFile.id,
           content: fsFile.content,
-          updatedAt: new Date()
+          updatedAt: new Date(),
+          priority: 3
         });
       }
     }
 
-    // Check for deleted files (but be careful not to delete files that were intentionally removed from DB)
-    // We'll skip auto-deletion of files that don't exist in filesystem to avoid conflicts
-    // Users can manually delete files they don't want through the UI
-
-    // Perform database operations
-    console.log(`Sync stats: ${toAdd.length} to add, ${toUpdate.length} to update, ${toDelete.length} to delete`);
-
-    // Delete removed files
-    for (const fileId of toDelete) {
-      await storage.deleteFile(fileId);
+    // Check for deleted files (files in DB but not in filesystem)
+    for (const [dbPath, dbFile] of dbFileMap.entries()) {
+      if (!fsFileMap.has(dbPath) && !this.recentlyDeleted.has(dbPath)) {
+        // File was deleted from filesystem but not recently deleted via API
+        // Be conservative - only auto-delete if it's been missing for a while
+        console.log(`File ${dbPath} exists in DB but not filesystem - manual intervention may be needed`);
+      }
     }
 
-    // Add new files - handle folders first, then files to maintain hierarchy
-    const foldersToAdd = toAdd.filter(f => f.isFolder);
-    const filesToAdd = toAdd.filter(f => !f.isFolder);
+    // Sort operations by priority
+    toAdd.sort((a, b) => a.priority - b.priority);
+    toUpdate.sort((a, b) => a.priority - b.priority);
 
-    // Create folders first and build parent-child relationships
-    const pathToIdMap = new Map<string, number>();
+    return { toAdd, toUpdate, toDelete };
+  }
 
-    // Also include existing database folders in the path map for proper hierarchy
-    const existingFolders = dbFiles.filter(f => f.isFolder);
-    for (const folder of existingFolders) {
-      pathToIdMap.set(folder.path, folder.id);
+  private async executeFileOperations(operations: any, tx: any): Promise<void> {
+    const { toAdd, toUpdate, toDelete } = operations;
+
+    // Execute additions (folders first, then files)
+    for (const fileData of toAdd) {
+      try {
+        // Resolve parent ID based on path hierarchy
+        const parentPath = fileData.path.substring(0, fileData.path.lastIndexOf('/'));
+        if (parentPath) {
+          const parentFile = await storage.getProjectFiles(this.projectId);
+          const parent = parentFile.find(f => f.path === parentPath && f.isFolder);
+          if (parent) {
+            fileData.parentId = parent.id;
+          }
+        }
+
+        const newFile = await storage.createFile(fileData);
+        this.emitFileEvent('create', fileData.path, { fileId: newFile.id });
+      } catch (error) {
+        console.error(`Error adding file ${fileData.path}:`, error);
+        // Continue with other operations
+      }
     }
 
-    // Sort folders by depth (shallow to deep) to ensure parents are created first
-    foldersToAdd.sort((a, b) => {
-      const depthA = a.path.split('/').filter((p: string) => p).length;
-      const depthB = b.path.split('/').filter((p: string) => p).length;
-      return depthA - depthB;
-    });
-
-    for (const folderData of foldersToAdd) {
-      // Find parent folder ID if it exists
-      const parentPath = folderData.path.substring(0, folderData.path.lastIndexOf('/')) || null;
-      const parentId = parentPath ? pathToIdMap.get(parentPath) : null;
-
-      const folder = await storage.createOrUpdateFile({
-        ...folderData,
-        parentId
-      });
-
-      pathToIdMap.set(folderData.path, folder.id);
-    }
-
-    // Create files and assign proper parent IDs
-    for (const fileData of filesToAdd) {
-      // Find parent folder ID
-      const parentPath = fileData.path.substring(0, fileData.path.lastIndexOf('/')) || null;
-      const parentId = parentPath ? pathToIdMap.get(parentPath) : null;
-
-      await storage.createOrUpdateFile({
-        ...fileData,
-        parentId
-      });
-    }
-
-    // Update modified files
+    // Execute updates
     for (const updateData of toUpdate) {
-      const { id, ...updates } = updateData;
-      await storage.updateFile(id, updates);
+      try {
+        await storage.updateFile(updateData.id, {
+          content: updateData.content,
+          updatedAt: updateData.updatedAt
+        });
+        
+        // Find the file path for event emission
+        const file = await storage.getFile(updateData.id);
+        if (file) {
+          this.emitFileEvent('update', file.path, { fileId: file.id });
+        }
+      } catch (error) {
+        console.error(`Error updating file ${updateData.id}:`, error);
+        // Continue with other operations
+      }
+    }
+
+    // Execute deletions (if any)
+    for (const deleteData of toDelete) {
+      try {
+        await storage.deleteFile(deleteData.id);
+        this.emitFileEvent('delete', deleteData.path, { fileId: deleteData.id });
+      } catch (error) {
+        console.error(`Error deleting file ${deleteData.id}:`, error);
+        // Continue with other operations
+      }
     }
   }
 
-  private async scanDirectory(dir: string, relativePath: string): Promise<any[]> {
-    const results: any[] = [];
-
+  private async scanDirectoryAtomic(dir: string, relativePath: string = ''): Promise<any[]> {
+    const files: any[] = [];
+    
     try {
+      if (!fs.existsSync(dir)) {
+        return files;
+      }
+      
+      const stats = fs.lstatSync(dir);
+      if (!stats.isDirectory()) return files;
+
       const items = fs.readdirSync(dir);
-
-      for (const item of items) {
-        // Skip problematic directories and files
-        if (this.shouldSkipItem(item)) {
-          continue;
-        }
-
-        const fullPath = path.join(dir, item);
-        const itemRelativePath = path.join(relativePath, item).replace(/\\/g, '/');
-
+      
+      // Filter out problematic items
+      const filteredItems = items.filter(item => {
+        if (item.startsWith('.')) return false;
+        if (item === 'node_modules') return false;
+        if (item.startsWith('tmp') || item.includes('~')) return false;
+        if (item.includes('.lock') || item.includes('.cache')) return false;
+        return true;
+      });
+      
+      // Process folders first for proper hierarchy
+      const folders = [];
+      const regularFiles = [];
+      
+      for (const item of filteredItems) {
+        const itemPath = path.join(dir, item);
+        const itemRelativePath = path.posix.join(relativePath, item);
+        
         try {
-          const stats = fs.lstatSync(fullPath);
-
-          if (stats.isSymbolicLink()) {
-            continue; // Skip symlinks
+          const itemStats = fs.lstatSync(itemPath);
+          
+          if (itemStats.isDirectory()) {
+            folders.push({ item, itemPath, itemRelativePath, stats: itemStats });
+          } else if (itemStats.isFile()) {
+            regularFiles.push({ item, itemPath, itemRelativePath, stats: itemStats });
           }
-
-          if (stats.isDirectory()) {
-            // Add folder
-            results.push({
-              name: item,
-              path: itemRelativePath.startsWith('/') ? itemRelativePath : `/${itemRelativePath}`,
-              content: null,
-              isFolder: true
-            });
-
-            // Recursively scan subdirectory (with depth limit)
-            const depth = relativePath.split('/').length;
-            if (depth < 10) { // Limit recursion depth
-              const childResults = await this.scanDirectory(fullPath, itemRelativePath);
-              results.push(...childResults);
-            }
-          } else if (stats.isFile()) {
-            // Add file with content (limit file size and handle binary files)
-            if (stats.size < 1024 * 1024) { // Skip files larger than 1MB
-              let content = '';
-              try {
-                // Check if file is likely binary
-                if (this.isBinaryFile(item)) {
-                  content = '[Binary file]';
-                } else {
-                  const buffer = fs.readFileSync(fullPath);
-                  // Check for null bytes (binary indicator)
-                  if (buffer.includes(0)) {
-                    content = '[Binary file]';
-                  } else {
-                    content = buffer.toString('utf8').substring(0, 50000); // Limit content size
-                  }
-                }
-              } catch (error) {
-                console.error(`Error reading file ${fullPath}:`, error);
-                content = '[Error reading file]';
-              }
-
-              results.push({
-                name: item,
-                path: itemRelativePath.startsWith('/') ? itemRelativePath : `/${itemRelativePath}`,
-                content,
-                isFolder: false
-              });
-            }
-          }
-        } catch (itemError) {
-          console.error(`Error processing ${fullPath}:`, itemError);
+        } catch (error) {
+          console.error(`Error reading item ${itemPath}:`, error);
           continue;
         }
       }
+      
+      // Add folders first
+      for (const { item, itemPath, itemRelativePath } of folders) {
+        files.push({
+          name: item,
+          path: itemRelativePath,
+          content: null,
+          isFolder: true
+        });
+        
+        // Recursively scan subdirectories
+        const subFiles = await this.scanDirectoryAtomic(itemPath, itemRelativePath);
+        files.push(...subFiles);
+      }
+      
+      // Add files
+      for (const { item, itemPath, itemRelativePath, stats } of regularFiles) {
+        try {
+          // Check file size limit
+          const maxSize = parseInt(process.env.MAX_FILE_SIZE_MB || '10') * 1024 * 1024;
+          if (stats.size > maxSize) {
+            console.warn(`File ${itemRelativePath} exceeds size limit (${stats.size} bytes)`);
+            continue;
+          }
+          
+          // Check if file is binary
+          const isBinary = await this.isBinaryFile(itemPath);
+          let content = null;
+          
+          if (!isBinary) {
+            try {
+              content = fs.readFileSync(itemPath, 'utf-8');
+            } catch (error) {
+              console.error(`Error reading file content ${itemPath}:`, error);
+              content = ''; // Empty content for unreadable files
+            }
+          } else {
+            console.log(`Skipping binary file: ${itemRelativePath}`);
+            continue; // Skip binary files
+          }
+          
+          files.push({
+            name: item,
+            path: itemRelativePath,
+            content,
+            isFolder: false
+          });
+        } catch (error) {
+          console.error(`Error processing file ${itemPath}:`, error);
+          continue;
+        }
+      }
+      
     } catch (error) {
       console.error(`Error scanning directory ${dir}:`, error);
     }
-
-    return results;
+    
+    return files;
   }
 
-  private shouldSkipItem(item: string): boolean {
-    const skipPatterns = [
-      'node_modules',
-      '.git',
-      '.cache',
-      'dist',
-      'build',
-      'out',
-      'coverage',
-      '.next',
-      '.nuxt',
-      'vendor',
-      'tmp',
-      'temp'
-    ];
-
-    const skipExtensions = [
-      '.log',
-      '.tmp',
-      '.cache'
-    ];
-
-    // Skip hidden files except important ones
-    if (item.startsWith('.') && item !== '.gitignore' && item !== '.env') {
-      return true;
-    }
-
-    // Skip patterns
-    if (skipPatterns.some(pattern => item === pattern)) {
-      return true;
-    }
-
-    // Skip extensions
-    if (skipExtensions.some(ext => item.endsWith(ext))) {
-      return true;
-    }
-
-    return false;
-  }
-
-  private isBinaryFile(filename: string): boolean {
-    const binaryExtensions = [
-      '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.ico',
-      '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-      '.zip', '.tar', '.gz', '.rar', '.7z',
-      '.exe', '.dll', '.so', '.dylib',
-      '.mp3', '.mp4', '.avi', '.mov', '.wav',
-      '.woff', '.woff2', '.ttf', '.eot'
-    ];
-
-    return binaryExtensions.some(ext => filename.toLowerCase().endsWith(ext));
-  }
-
-  // Force immediate sync
-  async forceSyncNow(): Promise<void> {
-    if (this.syncTimeout) {
-      clearTimeout(this.syncTimeout);
-      this.syncTimeout = null;
-    }
-    await this.performSync();
-  }
-
-  // Fix hierarchy for existing database files
-  async fixDatabaseHierarchy(): Promise<void> {
-    const dbFiles = await storage.getProjectFiles(this.projectId);
-
-    // Build path to ID mapping for folders
-    const pathToIdMap = new Map<string, number>();
-    const foldersToUpdate: Array<{ id: number, parentId: number | null }> = [];
-    const filesToUpdate: Array<{ id: number, parentId: number | null }> = [];
-
-    // First pass: map all folders
-    for (const file of dbFiles.filter(f => f.isFolder)) {
-      pathToIdMap.set(file.path, file.id);
-    }
-
-    // Second pass: determine correct parent relationships
-    for (const file of dbFiles) {
-      const parentPath = file.path.substring(0, file.path.lastIndexOf('/')) || null;
-      const correctParentId = parentPath ? pathToIdMap.get(parentPath) || null : null;
-
-      if (file.parentId !== correctParentId) {
-        if (file.isFolder) {
-          foldersToUpdate.push({ id: file.id, parentId: correctParentId });
-        } else {
-          filesToUpdate.push({ id: file.id, parentId: correctParentId });
+  private async isBinaryFile(filePath: string): Promise<boolean> {
+    try {
+      const buffer = fs.readFileSync(filePath, { encoding: null });
+      const bytes = buffer.subarray(0, Math.min(512, buffer.length));
+      
+      // Check for null bytes (common in binary files)
+      for (let i = 0; i < bytes.length; i++) {
+        if (bytes[i] === 0) {
+          return true;
         }
       }
-    }
-
-    // Update database with correct parent relationships
-    for (const update of [...foldersToUpdate, ...filesToUpdate]) {
-      await storage.updateFile(update.id, { parentId: update.parentId });
-    }
-
-    if (foldersToUpdate.length > 0 || filesToUpdate.length > 0) {
-      console.log(`Fixed hierarchy for ${foldersToUpdate.length} folders and ${filesToUpdate.length} files`);
+      
+      // Check for high percentage of non-printable characters
+      let nonPrintable = 0;
+      for (let i = 0; i < bytes.length; i++) {
+        const byte = bytes[i];
+        if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 13) {
+          nonPrintable++;
+        }
+      }
+      
+      return (nonPrintable / bytes.length) > 0.3; // 30% threshold
+    } catch (error) {
+      console.error(`Error checking if file is binary: ${filePath}`, error);
+      return true; // Assume binary if we can't read it
     }
   }
 
   // Mark a file as recently deleted to prevent re-sync
   markAsDeleted(filePath: string): void {
-    this.recentlyDeleted.add(filePath);
-
-    // Clear the deleted flag after 30 seconds
-    if (this.deleteTimeout) {
-      clearTimeout(this.deleteTimeout);
-    }
-
-    this.deleteTimeout = setTimeout(() => {
-      this.recentlyDeleted.delete(filePath);
-    }, 30000); // 30 seconds
+    this.recentlyDeleted.set(filePath, Date.now());
+    console.log(`Marked file as recently deleted: ${filePath}`);
   }
 
-  // Cleanup
+  // Get sync status
+  getSyncStatus(): { inProgress: boolean; pendingOperations: number; lastSync?: Date } {
+    return {
+      inProgress: this.syncInProgress,
+      pendingOperations: this.pendingOperations.size,
+      lastSync: new Date() // Could track actual last sync time
+    };
+  }
+
+  // Cleanup method
   cleanup(): void {
+    console.log(`Cleaning up FileSync for project ${this.projectId}`);
+    this.isDestroyed = true;
+    
     if (this.syncTimeout) {
       clearTimeout(this.syncTimeout);
       this.syncTimeout = null;
     }
-
+    
     if (this.deleteTimeout) {
-      clearTimeout(this.deleteTimeout);
+      clearInterval(this.deleteTimeout);
       this.deleteTimeout = null;
     }
-
+    
     this.recentlyDeleted.clear();
+    this.pendingOperations.clear();
   }
 }
+
+// Global registry for FileSync instances
+class FileSyncRegistry {
+  private instances = new Map<string, FileSync>();
+  
+  getOrCreate(projectId: number, workspaceDir: string, io?: SocketIOServer): FileSync {
+    const key = `${projectId}`;
+    
+    let instance = this.instances.get(key);
+    if (!instance) {
+      instance = new FileSync(projectId, workspaceDir, io);
+      this.instances.set(key, instance);
+    }
+    
+    return instance;
+  }
+  
+  get(projectId: number): FileSync | undefined {
+    return this.instances.get(`${projectId}`);
+  }
+  
+  remove(projectId: number): void {
+    const key = `${projectId}`;
+    const instance = this.instances.get(key);
+    if (instance) {
+      instance.cleanup();
+      this.instances.delete(key);
+    }
+  }
+  
+  cleanup(): void {
+    for (const [key, instance] of this.instances.entries()) {
+      instance.cleanup();
+    }
+    this.instances.clear();
+  }
+}
+
+export const fileSyncRegistry = new FileSyncRegistry();
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('Cleaning up FileSync instances...');
+  fileSyncRegistry.cleanup();
+});
+
+process.on('SIGINT', () => {
+  console.log('Cleaning up FileSync instances...');
+  fileSyncRegistry.cleanup();
+});

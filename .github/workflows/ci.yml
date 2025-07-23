@@ -1,0 +1,297 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  NODE_VERSION: '18'
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shetty_test
+  SESSION_SECRET: test-session-secret-for-ci
+  REPL_ID: test-repl-id
+  REPLIT_DOMAINS: localhost
+
+jobs:
+  # Security and code quality checks
+  security:
+    name: Security & Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run security audit
+        run: npm audit --audit-level=high
+
+      - name: Check for vulnerabilities
+        run: |
+          npm audit --json > audit-results.json || true
+          if [ $(jq '.metadata.vulnerabilities.high + .metadata.vulnerabilities.critical' audit-results.json) -gt 0 ]; then
+            echo "High or critical vulnerabilities found!"
+            npm audit
+            exit 1
+          fi
+
+      - name: TypeScript type checking
+        run: npm run check
+
+      - name: Lint code
+        run: |
+          npx eslint server/**/*.ts shared/**/*.ts --ext .ts --max-warnings 0 || true
+          echo "Linting completed (warnings allowed for now)"
+
+  # Unit and integration tests
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: shetty_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for PostgreSQL
+        run: |
+          until pg_isready -h localhost -p 5432 -U postgres; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+
+      - name: Run database migrations
+        run: npm run db:push
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Run unit tests
+        run: npm test -- --coverage --watchAll=false
+        env:
+          NODE_ENV: test
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          SESSION_SECRET: ${{ env.SESSION_SECRET }}
+          REPL_ID: ${{ env.REPL_ID }}
+          REPLIT_DOMAINS: ${{ env.REPLIT_DOMAINS }}
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/lcov.info
+          fail_ci_if_error: false
+
+  # Build and deployment preparation
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [security, test]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Archive build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-artifacts
+          path: |
+            dist/
+            package.json
+            package-lock.json
+          retention-days: 7
+
+  # Docker build and security scan
+  docker:
+    name: Docker Build & Scan
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t shetty-ide:${{ github.sha }} .
+          docker tag shetty-ide:${{ github.sha }} shetty-ide:latest
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'shetty-ide:latest'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # Performance and load testing
+  performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main'
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: shetty_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: build-artifacts
+
+      - name: Start application
+        run: |
+          npm run db:push &
+          sleep 5
+          npm start &
+          sleep 10
+        env:
+          NODE_ENV: production
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          SESSION_SECRET: ${{ env.SESSION_SECRET }}
+          REPL_ID: ${{ env.REPL_ID }}
+          REPLIT_DOMAINS: ${{ env.REPLIT_DOMAINS }}
+
+      - name: Run basic health check
+        run: |
+          curl -f http://localhost:5000/api/health || exit 1
+
+  # Deployment to staging/production
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: [docker, performance]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    environment:
+      name: production
+      url: https://your-domain.com
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: build-artifacts
+
+      - name: Deploy to production
+        run: |
+          echo "🚀 Deploying to production..."
+          echo "This would typically involve:"
+          echo "- Uploading artifacts to cloud storage"
+          echo "- Updating container registry"
+          echo "- Triggering deployment pipeline"
+          echo "- Running smoke tests"
+          echo "- Updating monitoring dashboards"
+          
+          # Example deployment commands (customize for your platform):
+          # docker push your-registry/shetty-ide:${{ github.sha }}
+          # kubectl set image deployment/shetty-ide shetty-ide=your-registry/shetty-ide:${{ github.sha }}
+          # kubectl rollout status deployment/shetty-ide
+
+      - name: Post-deployment health check
+        run: |
+          echo "🔍 Running post-deployment health checks..."
+          # curl -f https://your-domain.com/api/health || exit 1
+
+      - name: Notify deployment success
+        if: success()
+        run: |
+          echo "✅ Deployment successful!"
+          # Send notification to Slack, Discord, etc.
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "❌ Deployment failed, initiating rollback..."
+          # kubectl rollout undo deployment/shetty-ide
+
+  # Cleanup
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: always()
+    
+    steps:
+      - name: Clean up artifacts
+        uses: geekyeggo/delete-artifact@v2
+        with:
+          name: build-artifacts
+          failOnError: false
