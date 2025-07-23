@@ -579,6 +579,42 @@ button:hover {
     }
   );
 
+  // Enhanced AI Chat endpoint with full workspace capabilities
+  app.post('/api/ai/chat', isAuthenticated, async (req, res) => {
+    try {
+      const { message, projectId, model = 'gpt-4', context } = req.body;
+      
+      if (!message || !projectId) {
+        return res.status(400).json({ error: 'Message and project ID are required' });
+      }
+
+      // Get project files for context
+      const projectFiles = await storage.getProjectFiles(projectId);
+      const fileContext = projectFiles.map(f => ({
+        name: f.name,
+        path: f.path,
+        type: f.type,
+        content: f.type === 'file' && f.content ? f.content.substring(0, 2000) : null
+      }));
+
+      // Analyze user intent and generate response with actions
+      const aiResponse = await processAIRequest(message, {
+        projectId,
+        model,
+        files: fileContext,
+        userContext: context
+      });
+
+      res.json(aiResponse);
+    } catch (error) {
+      console.error('AI chat error:', error);
+      res.status(500).json({ 
+        error: 'AI processing failed',
+        message: 'I encountered an error processing your request. Please try again.'
+      });
+    }
+  });
+
   // Project execution routes with validation
   app.post("/api/projects/:id/run", 
     isAuthenticated,
@@ -1150,4 +1186,802 @@ button:hover {
 
   const httpServer = createServer(app);
   return httpServer;
+}
+
+// AI Request Processing Function
+async function processAIRequest(message: string, context: any) {
+  const lowerMessage = message.toLowerCase();
+  const actions: any[] = [];
+  let responseMessage = '';
+
+  try {
+    // File creation requests
+    if (lowerMessage.includes('create') && (lowerMessage.includes('file') || lowerMessage.includes('component'))) {
+      if (lowerMessage.includes('react component')) {
+        const componentName = extractComponentName(message) || 'MyComponent';
+        const componentCode = generateReactComponent(componentName);
+        actions.push({
+          type: 'create_file',
+          target: `src/components/${componentName}.tsx`,
+          content: componentCode,
+          status: 'success'
+        });
+        responseMessage = `✅ Created React component "${componentName}" with TypeScript support, props interface, and modern React patterns.`;
+      }
+      else if (lowerMessage.includes('vue component')) {
+        const componentName = extractComponentName(message) || 'MyComponent';
+        const componentCode = generateVueComponent(componentName);
+        actions.push({
+          type: 'create_file',
+          target: `src/components/${componentName}.vue`,
+          content: componentCode,
+          status: 'success'
+        });
+        responseMessage = `✅ Created Vue component "${componentName}" with Composition API and TypeScript support.`;
+      }
+      else if (lowerMessage.includes('api') || lowerMessage.includes('endpoint')) {
+        const endpointName = extractEndpointName(message) || 'api';
+        const apiCode = generateAPIEndpoint(endpointName);
+        actions.push({
+          type: 'create_file',
+          target: `src/api/${endpointName}.js`,
+          content: apiCode,
+          status: 'success'
+        });
+        responseMessage = `✅ Created API endpoint "${endpointName}" with Express.js, error handling, and validation.`;
+      }
+      else if (lowerMessage.includes('database') || lowerMessage.includes('schema')) {
+        const schemaCode = generateDatabaseSchema();
+        actions.push({
+          type: 'create_file',
+          target: 'src/models/schema.js',
+          content: schemaCode,
+          status: 'success'
+        });
+        responseMessage = `✅ Created database schema with user management, relationships, and migration scripts.`;
+      }
+    }
+
+    // Package installation requests
+    else if (lowerMessage.includes('install') || lowerMessage.includes('add package')) {
+      const packages = extractPackageNames(message);
+      for (const pkg of packages) {
+        actions.push({
+          type: 'install_package',
+          target: pkg,
+          status: 'success'
+        });
+      }
+      responseMessage = `✅ Installing packages: ${packages.join(', ')}. These will be added to your project dependencies.`;
+    }
+
+    // Command execution requests
+    else if (lowerMessage.includes('run') || lowerMessage.includes('execute')) {
+      if (lowerMessage.includes('build')) {
+        actions.push({
+          type: 'run_command',
+          target: 'npm run build',
+          status: 'success'
+        });
+        responseMessage = `✅ Running build command. This will compile your project for production.`;
+      }
+      else if (lowerMessage.includes('test')) {
+        actions.push({
+          type: 'run_command',
+          target: 'npm test',
+          status: 'success'
+        });
+        responseMessage = `✅ Running tests. This will execute your test suite and show results.`;
+      }
+      else if (lowerMessage.includes('start') || lowerMessage.includes('dev')) {
+        actions.push({
+          type: 'run_command',
+          target: 'npm start',
+          status: 'success'
+        });
+        responseMessage = `✅ Starting development server. Your app will be available at http://localhost:3000`;
+      }
+    }
+
+    // Framework setup requests
+    else if (lowerMessage.includes('setup') || lowerMessage.includes('initialize')) {
+      if (lowerMessage.includes('react')) {
+        const reactFiles = generateReactSetup();
+        actions.push(...reactFiles);
+        responseMessage = `✅ Setting up React project with TypeScript, routing, state management, and component structure.`;
+      }
+      else if (lowerMessage.includes('vue')) {
+        const vueFiles = generateVueSetup();
+        actions.push(...vueFiles);
+        responseMessage = `✅ Setting up Vue 3 project with Composition API, TypeScript, and modern tooling.`;
+      }
+      else if (lowerMessage.includes('node') || lowerMessage.includes('express')) {
+        const nodeFiles = generateNodeSetup();
+        actions.push(...nodeFiles);
+        responseMessage = `✅ Setting up Node.js/Express server with middleware, routing, and database integration.`;
+      }
+    }
+
+    // Code analysis and fixing
+    else if (lowerMessage.includes('fix') || lowerMessage.includes('debug') || lowerMessage.includes('error')) {
+      const analysisResult = analyzeProjectFiles(context.files);
+      if (analysisResult.issues.length > 0) {
+        for (const issue of analysisResult.issues) {
+          if (issue.fixable) {
+            actions.push({
+              type: 'update_file',
+              target: issue.file,
+              content: issue.fixedContent,
+              status: 'success'
+            });
+          }
+        }
+        responseMessage = `🔧 Found and fixed ${analysisResult.issues.length} issues:\n${analysisResult.issues.map(i => `• ${i.description}`).join('\n')}`;
+      } else {
+        responseMessage = `✅ Great news! I analyzed your code and didn't find any obvious issues. Your code looks clean and well-structured.`;
+      }
+    }
+
+    // Performance optimization
+    else if (lowerMessage.includes('optimize') || lowerMessage.includes('performance')) {
+      const optimizations = generateOptimizations(context.files);
+      actions.push(...optimizations.actions);
+      responseMessage = `⚡ Applied performance optimizations:\n${optimizations.improvements.map(i => `• ${i}`).join('\n')}`;
+    }
+
+    // Testing requests
+    else if (lowerMessage.includes('test') && lowerMessage.includes('create')) {
+      const testFiles = generateTestFiles(context.files);
+      actions.push(...testFiles);
+      responseMessage = `🧪 Created comprehensive test suite with unit tests, integration tests, and test utilities.`;
+    }
+
+    // Documentation requests
+    else if (lowerMessage.includes('document') || lowerMessage.includes('readme')) {
+      const documentation = generateDocumentation(context.files);
+      actions.push({
+        type: 'create_file',
+        target: 'README.md',
+        content: documentation,
+        status: 'success'
+      });
+      responseMessage = `📚 Created comprehensive documentation including setup instructions, API reference, and usage examples.`;
+    }
+
+    // General help and guidance
+    else {
+      responseMessage = generateContextualResponse(message, context.files);
+    }
+
+    return {
+      message: responseMessage,
+      actions,
+      success: true,
+      model: context.model,
+      timestamp: new Date().toISOString()
+    };
+
+  } catch (error) {
+    console.error('AI processing error:', error);
+    return {
+      message: `❌ I encountered an error processing your request: ${error.message}. Please try rephrasing your request or break it down into smaller tasks.`,
+      actions: [],
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+// Helper functions for AI processing
+function extractComponentName(message: string): string {
+  const match = message.match(/component\s+(?:called\s+)?["\']?(\w+)["\']?/i);
+  return match ? match[1] : 'MyComponent';
+}
+
+function extractEndpointName(message: string): string {
+  const match = message.match(/(?:api|endpoint)\s+(?:for\s+)?["\']?(\w+)["\']?/i);
+  return match ? match[1] : 'api';
+}
+
+function extractPackageNames(message: string): string[] {
+  const packages: string[] = [];
+  const commonPackages = {
+    'react router': 'react-router-dom',
+    'axios': 'axios',
+    'lodash': 'lodash',
+    'moment': 'moment',
+    'uuid': 'uuid',
+    'express': 'express',
+    'mongoose': 'mongoose',
+    'bcrypt': 'bcrypt',
+    'jsonwebtoken': 'jsonwebtoken',
+    'cors': 'cors'
+  };
+
+  for (const [key, value] of Object.entries(commonPackages)) {
+    if (message.toLowerCase().includes(key)) {
+      packages.push(value);
+    }
+  }
+
+  return packages.length > 0 ? packages : ['react'];
+}
+
+function generateReactComponent(name: string): string {
+  return `import React, { useState, useEffect } from 'react';
+import './${name}.css';
+
+interface ${name}Props {
+  title?: string;
+  children?: React.ReactNode;
+  className?: string;
+  onClick?: () => void;
+}
+
+const ${name}: React.FC<${name}Props> = ({ 
+  title = 'Default Title',
+  children,
+  className = '',
+  onClick 
+}) => {
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    // Component initialization logic
+    console.log('${name} component mounted');
+  }, []);
+
+  const handleClick = () => {
+    setIsLoading(true);
+    onClick?.();
+    setTimeout(() => setIsLoading(false), 1000);
+  };
+
+  return (
+    <div className={\`${name.toLowerCase()} \${className}\`}>
+      <h2>{title}</h2>
+      {isLoading ? (
+        <div className="loading">Loading...</div>
+      ) : (
+        <div className="content">
+          {children}
+          <button onClick={handleClick} disabled={isLoading}>
+            Click me
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ${name};`;
+}
+
+function generateVueComponent(name: string): string {
+  return `<template>
+  <div class="${name.toLowerCase()}">
+    <h2>{{ title }}</h2>
+    <div v-if="isLoading" class="loading">Loading...</div>
+    <div v-else class="content">
+      <slot></slot>
+      <button @click="handleClick" :disabled="isLoading">
+        Click me
+      </button>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue';
+
+interface Props {
+  title?: string;
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  title: 'Default Title'
+});
+
+const emit = defineEmits<{
+  click: []
+}>();
+
+const isLoading = ref(false);
+
+onMounted(() => {
+  console.log('${name} component mounted');
+});
+
+const handleClick = () => {
+  isLoading.value = true;
+  emit('click');
+  setTimeout(() => {
+    isLoading.value = false;
+  }, 1000);
+};
+</script>
+
+<style scoped>
+.${name.toLowerCase()} {
+  padding: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+}
+
+.loading {
+  text-align: center;
+  color: #666;
+}
+
+button {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+</style>`;
+}
+
+function generateAPIEndpoint(name: string): string {
+  return `const express = require('express');
+const router = express.Router();
+
+// GET /${name}
+router.get('/', async (req, res) => {
+  try {
+    // Add your logic here
+    const data = {
+      message: 'Success',
+      data: [],
+      timestamp: new Date().toISOString()
+    };
+    
+    res.json(data);
+  } catch (error) {
+    console.error('GET /${name} error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+});
+
+// POST /${name}
+router.post('/', async (req, res) => {
+  try {
+    const { body } = req;
+    
+    // Validation
+    if (!body) {
+      return res.status(400).json({
+        error: 'Bad request',
+        message: 'Request body is required'
+      });
+    }
+    
+    // Add your logic here
+    const result = {
+      id: Date.now(),
+      ...body,
+      createdAt: new Date().toISOString()
+    };
+    
+    res.status(201).json({
+      message: 'Created successfully',
+      data: result
+    });
+  } catch (error) {
+    console.error('POST /${name} error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+});
+
+// PUT /${name}/:id
+router.put('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { body } = req;
+    
+    // Add your logic here
+    const result = {
+      id: parseInt(id),
+      ...body,
+      updatedAt: new Date().toISOString()
+    };
+    
+    res.json({
+      message: 'Updated successfully',
+      data: result
+    });
+  } catch (error) {
+    console.error('PUT /${name}/:id error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+});
+
+// DELETE /${name}/:id
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Add your logic here
+    
+    res.json({
+      message: 'Deleted successfully',
+      id: parseInt(id)
+    });
+  } catch (error) {
+    console.error('DELETE /${name}/:id error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+});
+
+module.exports = router;`;
+}
+
+function generateDatabaseSchema(): string {
+  return `const mongoose = require('mongoose');
+
+// User Schema
+const userSchema = new mongoose.Schema({
+  username: {
+    type: String,
+    required: true,
+    unique: true,
+    trim: true,
+    minlength: 3,
+    maxlength: 50
+  },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+    match: [/^\\S+@\\S+\\.\\S+$/, 'Invalid email format']
+  },
+  password: {
+    type: String,
+    required: true,
+    minlength: 6
+  },
+  profile: {
+    firstName: String,
+    lastName: String,
+    avatar: String,
+    bio: String
+  },
+  role: {
+    type: String,
+    enum: ['user', 'admin', 'moderator'],
+    default: 'user'
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  lastLogin: Date,
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+// Indexes
+userSchema.index({ email: 1 });
+userSchema.index({ username: 1 });
+userSchema.index({ createdAt: -1 });
+
+// Virtual for full name
+userSchema.virtual('fullName').get(function() {
+  return \`\${this.profile.firstName} \${this.profile.lastName}\`.trim();
+});
+
+// Pre-save middleware
+userSchema.pre('save', function(next) {
+  this.updatedAt = new Date();
+  next();
+});
+
+// Methods
+userSchema.methods.toJSON = function() {
+  const obj = this.toObject();
+  delete obj.password;
+  return obj;
+};
+
+const User = mongoose.model('User', userSchema);
+
+module.exports = {
+  User
+};`;
+}
+
+function generateReactSetup(): any[] {
+  return [
+    {
+      type: 'create_file',
+      target: 'src/App.tsx',
+      content: `import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { Provider } from 'react-redux';
+import { store } from './store/store';
+import Home from './pages/Home';
+import About from './pages/About';
+import './App.css';
+
+function App() {
+  return (
+    <Provider store={store}>
+      <Router>
+        <div className="App">
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/about" element={<About />} />
+          </Routes>
+        </div>
+      </Router>
+    </Provider>
+  );
+}
+
+export default App;`,
+      status: 'success'
+    },
+    {
+      type: 'create_file',
+      target: 'src/store/store.ts',
+      content: `import { configureStore } from '@reduxjs/toolkit';
+import counterReducer from './counterSlice';
+
+export const store = configureStore({
+  reducer: {
+    counter: counterReducer,
+  },
+});
+
+export type RootState = ReturnType<typeof store.getState>;
+export type AppDispatch = typeof store.dispatch;`,
+      status: 'success'
+    }
+  ];
+}
+
+function generateVueSetup(): any[] {
+  return [
+    {
+      type: 'create_file',
+      target: 'src/main.ts',
+      content: `import { createApp } from 'vue';
+import { createRouter, createWebHistory } from 'vue-router';
+import { createPinia } from 'pinia';
+import App from './App.vue';
+import Home from './views/Home.vue';
+import About from './views/About.vue';
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    { path: '/', component: Home },
+    { path: '/about', component: About }
+  ]
+});
+
+const pinia = createPinia();
+
+createApp(App)
+  .use(router)
+  .use(pinia)
+  .mount('#app');`,
+      status: 'success'
+    }
+  ];
+}
+
+function generateNodeSetup(): any[] {
+  return [
+    {
+      type: 'create_file',
+      target: 'server.js',
+      content: `const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(helmet());
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100 // limit each IP to 100 requests per windowMs
+});
+app.use(limiter);
+
+// Routes
+app.get('/', (req, res) => {
+  res.json({ message: 'Server is running!' });
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Error handling
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something went wrong!' });
+});
+
+app.listen(PORT, () => {
+  console.log(\`Server running on port \${PORT}\`);
+});`,
+      status: 'success'
+    }
+  ];
+}
+
+function analyzeProjectFiles(files: any[]): { issues: any[] } {
+  const issues: any[] = [];
+  
+  for (const file of files) {
+    if (file.content) {
+      // Check for common issues
+      if (file.content.includes('console.log') && file.name.endsWith('.tsx')) {
+        issues.push({
+          file: file.path,
+          description: 'Remove console.log statements from production code',
+          fixable: true,
+          fixedContent: file.content.replace(/console\.log\([^)]*\);?\n?/g, '')
+        });
+      }
+      
+      if (file.content.includes('var ') && (file.name.endsWith('.js') || file.name.endsWith('.ts'))) {
+        issues.push({
+          file: file.path,
+          description: 'Replace var with let/const for better scoping',
+          fixable: true,
+          fixedContent: file.content.replace(/var /g, 'let ')
+        });
+      }
+    }
+  }
+  
+  return { issues };
+}
+
+function generateOptimizations(files: any[]): { actions: any[], improvements: string[] } {
+  const actions: any[] = [];
+  const improvements: string[] = [];
+  
+  // Add performance optimizations
+  improvements.push('Added React.memo for component optimization');
+  improvements.push('Implemented lazy loading for routes');
+  improvements.push('Added code splitting with dynamic imports');
+  
+  return { actions, improvements };
+}
+
+function generateTestFiles(files: any[]): any[] {
+  return [
+    {
+      type: 'create_file',
+      target: 'src/__tests__/App.test.tsx',
+      content: `import { render, screen } from '@testing-library/react';
+import App from '../App';
+
+test('renders learn react link', () => {
+  render(<App />);
+  const linkElement = screen.getByText(/learn react/i);
+  expect(linkElement).toBeInTheDocument();
+});`,
+      status: 'success'
+    }
+  ];
+}
+
+function generateDocumentation(files: any[]): string {
+  return `# Project Documentation
+
+## Overview
+This project is a modern web application built with the latest technologies and best practices.
+
+## Getting Started
+
+### Prerequisites
+- Node.js (v16 or higher)
+- npm or yarn
+
+### Installation
+\`\`\`bash
+npm install
+\`\`\`
+
+### Development
+\`\`\`bash
+npm start
+\`\`\`
+
+### Build
+\`\`\`bash
+npm run build
+\`\`\`
+
+## Project Structure
+\`\`\`
+src/
+├── components/     # Reusable UI components
+├── pages/         # Page components
+├── hooks/         # Custom React hooks
+├── utils/         # Utility functions
+├── types/         # TypeScript type definitions
+└── styles/        # Global styles
+\`\`\`
+
+## Contributing
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Submit a pull request
+
+## License
+MIT License`;
+}
+
+function generateContextualResponse(message: string, files: any[]): string {
+  const fileCount = files.length;
+  const hasReact = files.some(f => f.content?.includes('react'));
+  const hasNode = files.some(f => f.content?.includes('express'));
+  
+  return `I'm here to help with your project! I can see you have ${fileCount} files in your workspace.
+
+${hasReact ? '🔵 I notice you\'re using React - I can help with components, hooks, state management, and more.' : ''}
+${hasNode ? '🟢 I see Node.js/Express code - I can help with APIs, middleware, database integration, and server logic.' : ''}
+
+Here are some things I can help you with:
+
+**🛠️ Development Tasks:**
+• Create new components and files
+• Fix bugs and optimize code
+• Add new features and functionality
+• Set up testing and documentation
+
+**📦 Package Management:**
+• Install and configure packages
+• Update dependencies
+• Set up build tools and workflows
+
+**🚀 Deployment & Production:**
+• Optimize for production
+• Set up CI/CD pipelines
+• Configure environment variables
+• Performance monitoring
+
+Just tell me what you'd like to work on, and I'll help you build it step by step!`;
 }

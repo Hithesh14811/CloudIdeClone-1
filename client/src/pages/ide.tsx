@@ -8,8 +8,10 @@ import MonacoCodeEditor from "@/components/ide/monaco-code-editor";
 import RightPanel from "@/components/ide/right-panel";
 import XTerminal from "@/components/ide/XTerminal";
 import GlobalSearch from "@/components/ide/global-search";
+import AIAssistant from "@/components/ide/ai-assistant";
 import { useQuery } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
+import { useSocket } from "@/hooks/useSocket";
 
 interface FileNode {
   id: number;
@@ -27,12 +29,14 @@ interface IDEProps {
 export default function IDE({ projectId }: IDEProps) {
   const { toast } = useToast();
   const { isAuthenticated, isLoading } = useAuth();
+  const socket = useSocket();
   const [openTabs, setOpenTabs] = useState<FileNode[]>([]);
   const [activeFile, setActiveFile] = useState<FileNode | undefined>();
   const [fileTreeUpdateCallback, setFileTreeUpdateCallback] = useState<((data: any) => void) | null>(null);
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
+  const [rightPanelTab, setRightPanelTab] = useState<'preview' | 'ai'>('preview');
 
   // Fetch project details
   const { data: project } = useQuery({
@@ -81,7 +85,6 @@ export default function IDE({ projectId }: IDEProps) {
       // Quick file open (Ctrl+P)
       if (e.ctrlKey && e.key === 'p') {
         e.preventDefault();
-        // TODO: Implement quick file picker
         toast({
           title: "Quick Open",
           description: "Quick file picker coming soon! Use Ctrl+Shift+F for global search.",
@@ -103,6 +106,12 @@ export default function IDE({ projectId }: IDEProps) {
         // Terminal toggle functionality would go here
       }
 
+      // Toggle AI Assistant (Ctrl+Shift+A)
+      if (e.ctrlKey && e.shiftKey && e.key === 'A') {
+        e.preventDefault();
+        setRightPanelTab(rightPanelTab === 'ai' ? 'preview' : 'ai');
+      }
+
       // Save all files (Ctrl+K, S)
       if (e.ctrlKey && e.key === 'k') {
         e.preventDefault();
@@ -114,7 +123,7 @@ export default function IDE({ projectId }: IDEProps) {
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [showGlobalSearch, toast]);
+  }, [showGlobalSearch, toast, rightPanelTab]);
 
   // Redirect to home if not authenticated
   useEffect(() => {
@@ -190,6 +199,25 @@ export default function IDE({ projectId }: IDEProps) {
       fileTreeUpdateCallback(callback);
     }
   }, [fileTreeUpdateCallback]);
+
+  // AI Assistant Integration
+  const handleAIFileSelect = useCallback((fileId: number) => {
+    const file = allFiles.find(f => f.id === fileId);
+    if (file) {
+      handleFileSelect(file);
+    }
+  }, [allFiles]);
+
+  const handleAIRunCommand = useCallback((command: string) => {
+    // Send command to terminal
+    if (socket) {
+      // Find active terminal session and send command
+      socket.emit('terminal:input', { 
+        sessionId: 'current', // This would need to be tracked
+        input: command + '\n' 
+      });
+    }
+  }, [socket]);
 
   // Sidebar resize handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -277,12 +305,50 @@ export default function IDE({ projectId }: IDEProps) {
               />
             </div>
             
-            <RightPanel projectId={projectId} />
+            {/* Enhanced Right Panel with AI */}
+            <div className="w-80 border-l border-slate-700 bg-slate-800 flex flex-col">
+              {/* Panel Tabs */}
+              <div className="flex border-b border-slate-700">
+                <button
+                  className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                    rightPanelTab === 'preview' 
+                      ? 'bg-slate-700 text-gray-200' 
+                      : 'text-gray-400 hover:text-gray-200 hover:bg-slate-750'
+                  }`}
+                  onClick={() => setRightPanelTab('preview')}
+                >
+                  Preview
+                </button>
+                <button
+                  className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                    rightPanelTab === 'ai' 
+                      ? 'bg-slate-700 text-gray-200' 
+                      : 'text-gray-400 hover:text-gray-200 hover:bg-slate-750'
+                  }`}
+                  onClick={() => setRightPanelTab('ai')}
+                >
+                  AI Assistant
+                </button>
+              </div>
+
+              {/* Panel Content */}
+              <div className="flex-1 overflow-hidden">
+                {rightPanelTab === 'preview' ? (
+                  <RightPanel projectId={projectId} />
+                ) : (
+                  <AIAssistant 
+                    projectId={projectId}
+                    onFileSelect={handleAIFileSelect}
+                    onRunCommand={handleAIRunCommand}
+                  />
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Status Bar */}
+      {/* Enhanced Status Bar */}
       <div className="bg-slate-800 border-t border-slate-700 px-4 py-1 text-xs text-gray-500 shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
@@ -292,13 +358,16 @@ export default function IDE({ projectId }: IDEProps) {
             <span>
               {openTabs.length} file{openTabs.length !== 1 ? 's' : ''} open
             </span>
+            <span>
+              {allFiles.length} total files
+            </span>
           </div>
           <div className="flex items-center space-x-4">
             <span>
-              Shortcuts: Ctrl+Shift+F (Search) • Ctrl+P (Quick Open) • Ctrl+` (Terminal)
+              Shortcuts: Ctrl+Shift+F (Search) • Ctrl+Shift+A (AI) • Ctrl+P (Quick Open) • Ctrl+` (Terminal)
             </span>
             <span className="text-blue-400">
-              🔥 VS Code-level IDE Ready
+              🤖 AI Assistant Ready
             </span>
           </div>
         </div>
