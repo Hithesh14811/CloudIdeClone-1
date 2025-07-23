@@ -106,7 +106,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     queryKey: ['project-files', projectId, refreshKey],
     queryFn: async () => {
       const response = await apiRequest('GET', `/api/projects/${projectId}/files`);
-      // Map database fields to FileNode interface
+      // Map database fields to FileNode interface - Drizzle ORM maps to camelCase
       return response.map((file: any) => ({
         id: file.id,
         name: file.name,
@@ -118,8 +118,9 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       }));
     },
     enabled: !!projectId,
-    staleTime: 0, // Always consider data stale for fresh fetches
-    gcTime: 0, // Don't cache results for true refresh behavior
+    staleTime: 1000 * 60, // Cache for 1 minute to improve performance
+    gcTime: 1000 * 60 * 5, // Keep in cache for 5 minutes
+    refetchOnWindowFocus: false, // Don't refetch on window focus
   });
 
   // Update previous files and track if we've ever had files
@@ -133,6 +134,14 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       setShowLoadingIndicator(false);
     }
   }, [files, isLoading, hasEverHadFiles]);
+
+  // Effect to ensure files show immediately on first load
+  useEffect(() => {
+    if (projectId && !isLoading && files.length > 0 && hasEverHadFiles) {
+      // Files are loaded, ensure they display immediately
+      setShowLoadingIndicator(false);
+    }
+  }, [projectId, isLoading, files.length, hasEverHadFiles]);
 
   // Set up file tree update receiver
   useEffect(() => {
@@ -176,7 +185,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     };
   }, [projectId, queryClient]);
 
-  // Set up automatic refresh every 2 seconds (paused during user operations)
+  // Set up automatic refresh every 10 seconds (reduced frequency for better performance)
   useEffect(() => {
     const startAutoRefresh = () => {
       if (autoRefreshRef.current) {
@@ -186,15 +195,10 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       autoRefreshRef.current = setInterval(() => {
         // Don't refresh if user is actively creating files or in select mode
         if (!isUserCreating && !selectMode && !creatingItem.show) {
-          console.log('Auto-refreshing file tree silently...');
-          // Keep loading indicator hidden during auto-refresh
-          setShowLoadingIndicator(false);
-          // Force complete refresh by incrementing refresh key
-          setRefreshKey(prev => prev + 1);
-          // Keep expanded folders and selections intact during auto-refresh
-          // Don't reset expandedFolders or selectedFiles to preserve user state
+          // Use regular refetch instead of refreshKey for better performance
+          refetch();
         }
-      }, 500); // Refresh every 0.5 seconds
+      }, 30000); // Refresh every 30 seconds for optimal performance
     };
 
     if (projectId) {
@@ -357,7 +361,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
 
   const handleSelectAll = () => {
     const allFileIds = files.map((f: FileNode) => f.id);
-    console.log('Select All clicked - Total files:', files.length, 'File IDs:', allFileIds);
+    console.log('Select All clicked - Total files:', files.length);
     setSelectedFiles(new Set(allFileIds));
     toast({
       title: 'Selected All Files',
