@@ -27,11 +27,11 @@ export class FileWatcher {
       this.stop();
     }
 
-    // Watch the directory for changes with optimized settings for real-time updates
+    // Watch the directory for changes with ultra-fast settings for progressive file creation
     this.watcher = chokidar.watch(this.watchPath, {
       ignored: [
         /(^|[\/\\])\../, // ignore dotfiles
-        '**/node_modules/**/node_modules/**', // ignore nested node_modules only
+        '**/node_modules/**/node_modules/**', // allow first-level node_modules for npm install visibility
         '**/\.git/**', // ignore git
         '**/*~', // ignore temp files
         '**/tmp/**', // ignore tmp directories
@@ -45,18 +45,18 @@ export class FileWatcher {
         '**/vendor/**', // ignore vendor directories
       ],
       persistent: true,
-      ignoreInitial: true, // Don't scan initial files, reduces load
-      depth: 10, // Increased depth to catch more nested structures
+      ignoreInitial: true, // Don't scan initial files
+      depth: 15, // Higher depth for better nested structure detection
       awaitWriteFinish: {
-        stabilityThreshold: 50, // Much faster detection for real-time updates
-        pollInterval: 25
+        stabilityThreshold: 25, // Ultra-fast detection for real-time updates
+        pollInterval: 10 // Very fast polling for immediate detection
       },
       followSymlinks: false,
       ignorePermissionErrors: true,
       atomic: true,
-      usePolling: false, // Use native file system events for better performance
-      interval: 500, // Faster polling if needed
-      binaryInterval: 1000, // Faster polling for binary files
+      usePolling: false, // Use native file system events for maximum speed
+      interval: 100, // Faster fallback polling
+      binaryInterval: 500, // Faster binary file detection
       alwaysStat: false // Don't stat files unless needed
     });
 
@@ -65,33 +65,45 @@ export class FileWatcher {
       this.sendFileTreeUpdate();
     }, 100);
 
-    // Listen for changes with minimal throttling for maximum real-time response
+    // Listen for changes with immediate socket emissions for instant UI updates
     let updateTimeout: NodeJS.Timeout | null = null;
-    const throttledUpdate = () => {
+    const throttledUpdate = (eventType?: string, filePath?: string) => {
       if (updateTimeout) clearTimeout(updateTimeout);
+      
+      // Emit immediate socket event for real-time frontend updates
+      this.socket.emit('files:updated', { 
+        projectId: this.projectId,
+        eventType,
+        filePath,
+        timestamp: Date.now()
+      });
+      
       updateTimeout = setTimeout(() => {
         this.sendFileTreeUpdate();
         updateTimeout = null;
-      }, 25); // Ultra-fast throttling for real-time updates - max every 25ms
+      }, 10); // Ultra-fast throttling - max every 10ms for progressive updates
     };
 
     this.watcher
       .on('add', (path) => {
         console.log('File added:', path);
-        throttledUpdate();
+        throttledUpdate('add', path);
       })
       .on('addDir', (path) => {
         console.log('Directory added:', path);
-        throttledUpdate();
+        throttledUpdate('addDir', path);
       })
-      .on('change', throttledUpdate)
+      .on('change', (path) => {
+        console.log('File changed:', path);
+        throttledUpdate('change', path);
+      })
       .on('unlink', (path) => {
         console.log('File removed:', path);
-        throttledUpdate();
+        throttledUpdate('unlink', path);
       })
       .on('unlinkDir', (path) => {
         console.log('Directory removed:', path);
-        throttledUpdate();
+        throttledUpdate('unlinkDir', path);
       })
       .on('error', (error: any) => {
         // Handle ENOSPC errors gracefully

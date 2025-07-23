@@ -154,63 +154,67 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     }
   }, [onFileTreeUpdateReceiver, queryClient, projectId]);
 
-  // Set up socket connection for manual refresh and real-time updates
+  // Set up socket connection for real-time file updates (replacing polling)
   useEffect(() => {
     if (!socketRef.current) {
       socketRef.current = io();
     }
 
-    // Listen for file changes from terminal
+    // Listen for real-time file changes from terminal and backend
     const handleFileChanges = (data: any) => {
-      console.log('Files changed via socket:', data);
-      if (data.projectId === projectId || parseInt(data.projectId) === projectId) {
-        // Keep loading indicator hidden for socket updates too
+      console.log('Real-time file change detected:', data);
+      const targetProjectId = parseInt(data.projectId) || data.projectId;
+      if (targetProjectId === projectId || String(targetProjectId) === String(projectId)) {
+        // Keep loading indicator hidden for socket updates
         setShowLoadingIndicator(false);
-        // Force complete refresh immediately for ultra-fast updates
-        setRefreshKey(prev => prev + 1);
-        // Keep expanded folders intact during socket updates too
-        // Don't reset expandedFolders to preserve user state
+        // Immediately invalidate cache for instant updates
+        queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+        // Keep expanded folders and selection state intact
       }
     };
 
+    // Listen to multiple event types for comprehensive real-time updates
+    socketRef.current.on('files:updated', handleFileChanges);
     socketRef.current.on('files:changed', handleFileChanges);
     socketRef.current.on('file-tree-update', handleFileChanges);
+    socketRef.current.on('files:add', handleFileChanges);
+    socketRef.current.on('files:delete', handleFileChanges);
+    socketRef.current.on('files:modify', handleFileChanges);
 
     return () => {
       if (socketRef.current) {
+        socketRef.current.off('files:updated', handleFileChanges);
         socketRef.current.off('files:changed', handleFileChanges);
         socketRef.current.off('file-tree-update', handleFileChanges);
+        socketRef.current.off('files:add', handleFileChanges);
+        socketRef.current.off('files:delete', handleFileChanges);
+        socketRef.current.off('files:modify', handleFileChanges);
         socketRef.current.disconnect();
       }
     };
   }, [projectId, queryClient]);
 
-  // Set up automatic refresh every 10 seconds (reduced frequency for better performance)
+  // Remove automatic polling - now using pure real-time Socket.IO updates
+  // This eliminates the 30-second polling in favor of instant socket events
   useEffect(() => {
-    const startAutoRefresh = () => {
-      if (autoRefreshRef.current) {
-        clearInterval(autoRefreshRef.current);
-      }
+    // Clean up any existing intervals since we're now fully real-time
+    if (autoRefreshRef.current) {
+      clearInterval(autoRefreshRef.current);
+      autoRefreshRef.current = null;
+    }
 
-      autoRefreshRef.current = setInterval(() => {
-        // Don't refresh if user is actively creating files or in select mode
-        if (!isUserCreating && !selectMode && !creatingItem.show) {
-          // Use regular refetch instead of refreshKey for better performance
-          refetch();
-        }
-      }, 30000); // Refresh every 30 seconds for optimal performance
-    };
-
-    if (projectId) {
-      startAutoRefresh();
+    // Join project room for real-time updates when projectId changes
+    if (projectId && socketRef.current) {
+      socketRef.current.emit('join-project', { projectId: projectId.toString() });
     }
 
     return () => {
-      if (autoRefreshRef.current) {
-        clearInterval(autoRefreshRef.current);
+      // Leave project room when component unmounts or projectId changes
+      if (projectId && socketRef.current) {
+        socketRef.current.emit('leave-project', { projectId: projectId.toString() });
       }
     };
-  }, [projectId, isUserCreating, selectMode, creatingItem.show]);
+  }, [projectId]);
 
   // Manual refresh function
   const handleManualRefresh = () => {
@@ -270,26 +274,45 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     },
   });
 
-  // Delete file/folder mutation (for single item)
+  // Delete file/folder mutation (for single item) with optimistic updates
   const deleteMutation = useMutation({
     mutationFn: async (fileId: number) => {
       const response = await apiRequest('DELETE', `/api/files/${fileId}`);
       return response;
     },
-    onSuccess: () => {
-      setRefreshKey(prev => prev + 1);
-      setPreviousFiles([]);
-      toast({
-        title: 'Success',
-        description: 'Item deleted successfully'
+    onMutate: async (fileId: number) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['project-files', projectId] });
+      
+      // Snapshot the previous value
+      const previousFiles = queryClient.getQueryData(['project-files', projectId]) as FileNode[];
+      
+      // Optimistically remove the deleted file immediately
+      queryClient.setQueryData(['project-files', projectId], (old: FileNode[] = []) => {
+        return old.filter(file => file.id !== fileId);
       });
+      
+      return { previousFiles };
     },
-    onError: (error: any) => {
+    onError: (error: any, fileId: number, context) => {
+      // Revert the optimistic update on error
+      if (context?.previousFiles) {
+        queryClient.setQueryData(['project-files', projectId], context.previousFiles);
+      }
       console.error('Error deleting item:', error);
       toast({
         title: 'Error',
         description: 'Failed to delete item',
         variant: 'destructive'
+      });
+    },
+    onSuccess: () => {
+      // Force complete refresh to ensure consistency
+      setRefreshKey(prev => prev + 1);
+      setPreviousFiles([]);
+      toast({
+        title: 'Success',
+        description: 'Item deleted successfully'
       });
     },
   });

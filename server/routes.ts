@@ -7,6 +7,26 @@ import { z } from "zod";
 import { processAIRequest } from "./services/aiAgent";
 import { updatePreviewFiles } from "./services/preview";
 import { getFileSyncForProject } from "./sockets/terminal";
+import { Server as SocketIOServer } from 'socket.io';
+
+// Global variable to store the Socket.IO instance for real-time updates
+let globalIO: SocketIOServer | null = null;
+
+export function setGlobalIO(io: SocketIOServer) {
+  globalIO = io;
+}
+
+function emitFileUpdate(projectId: number, eventType: string) {
+  if (globalIO) {
+    const projectRoom = `project-${projectId}`;
+    globalIO.to(projectRoom).emit('files:updated', {
+      projectId: projectId.toString(),
+      eventType,
+      timestamp: Date.now()
+    });
+    console.log(`Emitted ${eventType} event to room ${projectRoom}`);
+  }
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -168,6 +188,10 @@ body {
       });
       
       const file = await storage.createFile(fileData);
+      
+      // Emit real-time event for file creation
+      emitFileUpdate(projectId, 'create');
+      
       res.json(file);
     } catch (error) {
       console.error("Error creating file:", error);
@@ -197,6 +221,10 @@ body {
       }).parse(req.body);
       
       const updatedFile = await storage.updateFile(fileId, updates);
+      
+      // Emit real-time event for file update
+      emitFileUpdate(file.projectId, 'update');
+      
       res.json(updatedFile);
     } catch (error) {
       console.error("Error updating file:", error);
@@ -254,6 +282,9 @@ body {
         console.error(`Error deleting from filesystem: ${fsError}`);
         // Don't fail the API call if filesystem deletion fails
       }
+      
+      // Emit real-time event for file deletion
+      emitFileUpdate(file.projectId, 'delete');
       
       res.json({ message: "File deleted successfully" });
     } catch (error) {

@@ -65,6 +65,10 @@ app.use((req, res, next) => {
   // Setup socket handlers
   setupTerminalSocket(io);
   setupPreviewSocket(io);
+  
+  // Set global IO instance for routes to emit real-time events
+  const { setGlobalIO } = await import('./routes');
+  setGlobalIO(io);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

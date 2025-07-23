@@ -37,6 +37,19 @@ export function setupTerminalSocket(io: SocketIOServer) {
   io.on('connection', (socket) => {
     console.log('Terminal socket connected:', socket.id);
 
+    // Handle project room joining for real-time file updates
+    socket.on('join-project', (data: { projectId: string }) => {
+      const projectRoom = `project-${data.projectId}`;
+      socket.join(projectRoom);
+      console.log(`Socket ${socket.id} joined project room ${projectRoom}`);
+    });
+
+    socket.on('leave-project', (data: { projectId: string }) => {
+      const projectRoom = `project-${data.projectId}`;
+      socket.leave(projectRoom);
+      console.log(`Socket ${socket.id} left project room ${projectRoom}`);
+    });
+
     socket.on('terminal:start', async (data: { projectId: string, userId: string }) => {
       try {
         const { projectId, userId } = data;
@@ -125,7 +138,7 @@ export function setupTerminalSocket(io: SocketIOServer) {
 
         // Create file watcher and file sync for this project
         const fileWatcher = new FileWatcher(socket, workingDir, projectId);
-        const fileSync = new FileSync(parseInt(projectId), workingDir);
+        const fileSync = new FileSync(parseInt(projectId), workingDir, io);
         fileWatcher.start();
 
         const session: TerminalSession = {

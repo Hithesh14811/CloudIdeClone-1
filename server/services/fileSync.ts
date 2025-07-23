@@ -1,6 +1,7 @@
 import { storage } from '../storage';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Server as SocketIOServer } from 'socket.io';
 
 export class FileSync {
   private projectId: number;
@@ -8,27 +9,48 @@ export class FileSync {
   private syncTimeout: NodeJS.Timeout | null = null;
   private recentlyDeleted = new Set<string>(); // Track recently deleted file paths
   private deleteTimeout: NodeJS.Timeout | null = null;
+  private io: SocketIOServer | null = null;
 
-  constructor(projectId: number, workspaceDir: string) {
+  constructor(projectId: number, workspaceDir: string, io?: SocketIOServer) {
     this.projectId = projectId;
     this.workspaceDir = workspaceDir;
+    this.io = io || null;
   }
 
-  // Sync filesystem changes to database with debouncing
+  // Sync filesystem changes to database with debouncing and immediate socket events
   async syncWorkspaceToDatabase(): Promise<void> {
     if (this.syncTimeout) {
       clearTimeout(this.syncTimeout);
     }
     
+    // Emit immediate event for real-time UI updates
+    this.emitFileUpdateEvent();
+    
     this.syncTimeout = setTimeout(async () => {
       try {
         await this.performSync();
         console.log(`File sync completed for project ${this.projectId}`);
+        // Emit final event after database sync completes
+        this.emitFileUpdateEvent();
       } catch (error) {
         console.error('File sync error:', error);
       }
-    }, 500); // Debounce for 0.5 seconds for faster updates
+    }, 300); // Reduced to 300ms for even faster updates
   }
+
+  // Emit socket event for real-time frontend updates
+  private emitFileUpdateEvent(): void {
+    if (this.io) {
+      const projectRoom = `project-${this.projectId}`;
+      this.io.to(projectRoom).emit('files:updated', { 
+        projectId: this.projectId.toString(),
+        timestamp: Date.now()
+      });
+      console.log(`Emitted files:updated event to room ${projectRoom}`);
+    }
+  }
+
+
 
   private async performSync(): Promise<void> {
     if (!fs.existsSync(this.workspaceDir)) {
