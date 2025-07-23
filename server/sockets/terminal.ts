@@ -6,7 +6,8 @@ import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { platform } from 'os';
 import { execSync } from 'child_process';
-import { setupRealtimeWatcher, RealtimeFileWatcher } from '../services/realtimeFileWatcher';
+import { FileWatcher } from '../services/fileWatcher';
+import { FileSync } from '../services/fileSync';
 
 interface TerminalSession {
   id: string;
@@ -15,17 +16,18 @@ interface TerminalSession {
   workingDir: string;
   ptyProcess: pty.IPty;
   socketId: string;
-  realtimeWatcher?: RealtimeFileWatcher;
+  fileWatcher?: FileWatcher;
+  fileSync?: FileSync;
 }
 
 const terminalSessions = new Map<string, TerminalSession>();
 
-// Helper function to get realtime watcher instance for a project
-export function getRealtimeWatcherForProject(projectId: string, userId: string): RealtimeFileWatcher | null {
+// Helper function to get FileSync instance for a project
+export function getFileSyncForProject(projectId: string, userId: string): FileSync | null {
   const sessionsArray = Array.from(terminalSessions.values());
   for (const session of sessionsArray) {
-    if (session.projectId === projectId && session.userId === userId && session.realtimeWatcher) {
-      return session.realtimeWatcher;
+    if (session.projectId === projectId && session.userId === userId && session.fileSync) {
+      return session.fileSync;
     }
   }
   return null;
@@ -121,9 +123,10 @@ export function setupTerminalSocket(io: SocketIOServer) {
           return;
         }
 
-        // Create realtime file watcher for this project
-        const realtimeWatcher = setupRealtimeWatcher(socket, workingDir, projectId);
-        realtimeWatcher.start();
+        // Create file watcher and file sync for this project
+        const fileWatcher = new FileWatcher(socket, workingDir, projectId);
+        const fileSync = new FileSync(parseInt(projectId), workingDir);
+        fileWatcher.start();
 
         const session: TerminalSession = {
           id: sessionId,
@@ -132,7 +135,8 @@ export function setupTerminalSocket(io: SocketIOServer) {
           workingDir,
           ptyProcess,
           socketId: socket.id,
-          realtimeWatcher
+          fileWatcher,
+          fileSync
         };
         
         terminalSessions.set(sessionId, session);
@@ -140,11 +144,25 @@ export function setupTerminalSocket(io: SocketIOServer) {
         // Handle PTY output with buffering for better performance
         let outputBuffer = '';
         let flushTimeout: NodeJS.Timeout | null = null;
+        let syncTimeout: NodeJS.Timeout | null = null;
         
         const flushOutput = () => {
           if (outputBuffer.length > 0) {
             socket.emit('terminal:output', outputBuffer);
             outputBuffer = '';
+            
+            // Trigger file sync after terminal output (debounced)
+            if (syncTimeout) clearTimeout(syncTimeout);
+            syncTimeout = setTimeout(() => {
+              fileSync.syncWorkspaceToDatabase().then(() => {
+                console.log(`Files synced for project ${projectId}`);
+                socket.emit('files:changed', { projectId: parseInt(projectId) });
+                // Also emit the file tree update event that the frontend expects
+                socket.emit('file-tree-update', { projectId: parseInt(projectId) });
+              }).catch(err => {
+                console.error('File sync error:', err);
+              });
+            }, 1000); // Wait 1 second after last output for faster updates
           }
           flushTimeout = null;
         };
@@ -172,10 +190,13 @@ export function setupTerminalSocket(io: SocketIOServer) {
           console.log(`Terminal ${sessionId} exited with code ${code}`);
           socket.emit('terminal:exit', { code: code || 0 });
           
-          // Clean up realtime watcher
+          // Clean up file watcher and sync
           const session = terminalSessions.get(sessionId);
-          if (session?.realtimeWatcher) {
-            session.realtimeWatcher.stop();
+          if (session?.fileWatcher) {
+            session.fileWatcher.stop();
+          }
+          if (session?.fileSync) {
+            session.fileSync.cleanup();
           }
           
           terminalSessions.delete(sessionId);
@@ -234,8 +255,8 @@ export function setupTerminalSocket(io: SocketIOServer) {
         
         if (session) {
           session.ptyProcess.kill();
-          if (session.realtimeWatcher) {
-            session.realtimeWatcher.stop();
+          if (session.fileWatcher) {
+            session.fileWatcher.stop();
           }
           terminalSessions.delete(sessionId);
           socket.emit('terminal:stopped', { sessionId });
@@ -250,11 +271,11 @@ export function setupTerminalSocket(io: SocketIOServer) {
       try {
         const { projectId } = data;
         
-        // Find any terminal session for this project and force refresh its realtime watcher
+        // Find any terminal session for this project and force refresh its file watcher
         Array.from(terminalSessions.values()).forEach(session => {
-          if (session.projectId === projectId && session.realtimeWatcher) {
+          if (session.projectId === projectId && session.fileWatcher) {
             console.log(`Manual file tree refresh requested for project ${projectId}`);
-            // The realtime watcher automatically emits updates, no manual refresh needed
+            session.fileWatcher.forceRefresh();
           }
         });
       } catch (error) {
@@ -270,8 +291,8 @@ export function setupTerminalSocket(io: SocketIOServer) {
       Array.from(terminalSessions.entries()).forEach(([sessionId, session]) => {
         if (session.socketId === socket.id) {
           session.ptyProcess.kill();
-          if (session.realtimeWatcher) {
-            session.realtimeWatcher.stop();
+          if (session.fileWatcher) {
+            session.fileWatcher.stop();
           }
           terminalSessions.delete(sessionId);
           console.log(`Cleaned up terminal session: ${sessionId}`);

@@ -6,7 +6,7 @@ import { insertProjectSchema, insertFileSchema } from "@shared/schema";
 import { z } from "zod";
 import { processAIRequest } from "./services/aiAgent";
 import { updatePreviewFiles } from "./services/preview";
-import { getRealtimeWatcherForProject } from "./sockets/terminal";
+import { getFileSyncForProject } from "./sockets/terminal";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -223,8 +223,12 @@ body {
       // Delete from database first
       await storage.deleteFile(fileId);
       
-      // With realtime watcher, we don't need to manually mark files as deleted
-      // The watcher will automatically detect the filesystem deletion and emit updates
+      // Mark file as recently deleted in FileSync to prevent re-sync
+      const fileSync = getFileSyncForProject(file.projectId.toString(), userId);
+      if (fileSync) {
+        fileSync.markAsDeleted(file.path);
+        console.log(`Marked file as deleted: ${file.path}`);
+      }
       
       // Also delete from filesystem workspace
       try {
@@ -407,20 +411,39 @@ body {
     next();
   });
 
-  // Force refresh file tree with realtime watcher
+  // Force refresh file tree with file sync
   app.post('/api/projects/:id/files/refresh', async (req: any, res) => {
     const projectId = parseInt(req.params.id);
     console.log(`Manual file tree refresh requested for project ${projectId}`);
     
     try {
-      // With realtime watcher, the file tree automatically updates
-      // This endpoint is kept for backward compatibility but no longer needed
+      // Import FileSync and force sync
+      const { FileSync } = await import('./services/fileSync');
+      const workspaceDir = `/tmp/shetty-workspace/${process.env.REPL_ID || 'dev'}/${projectId}`;
+      const fileSync = new FileSync(projectId, workspaceDir);
       
-      res.json({ success: true, message: "File tree updates automatically via realtime watcher" });
+      // Force immediate sync
+      await fileSync.forceSyncNow();
+      console.log(`Files synced for project ${projectId}`);
+      
+      // Force refresh by emitting socket event
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('files:forceRefresh', { projectId });
+        console.log(`Force refreshing file tree for project ${projectId}`);
+      }
+      
+      res.json({ success: true, synced: true });
     } catch (error) {
-      console.error('Error during file refresh:', error);
+      console.error('Error during file sync:', error);
+      
+      // Still try to refresh UI
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('files:forceRefresh', { projectId });
+      }
       const errorMessage = error instanceof Error ? error.message : String(error);
-      res.json({ success: false, error: errorMessage });
+      res.json({ success: true, synced: false, error: errorMessage });
     }
   });
 

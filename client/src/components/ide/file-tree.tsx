@@ -83,9 +83,7 @@ const getFileIcon = (filename: string) => {
 export default function FileTree({ projectId, onFileSelect, selectedFile, onFileTreeUpdateReceiver }: FileTreeProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  // Use ref to persist expanded folders state across refreshes
-  const expandedFolderPathsRef = useRef<Set<string>>(new Set(['/app'])); // Root always expanded by path
-  const [expandedFolderPaths, setExpandedFolderPaths] = useState<Set<string>>(new Set(['/app'])); // Local state for re-renders
+  const [expandedFolders, setExpandedFolders] = useState<Set<number>>(new Set([0])); // Root always expanded
   const [creatingItem, setCreatingItem] = useState<{
     type: 'file' | 'folder';
     parentId?: number;
@@ -96,20 +94,14 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
   const [isUserCreating, setIsUserCreating] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0); // Force complete refresh
   const [showLoadingIndicator, setShowLoadingIndicator] = useState(true); // Control loading indicator visibility
   const socketRef = useRef<Socket | null>(null);
   const autoRefreshRef = useRef<NodeJS.Timeout | null>(null);
-  
-  // Function to update both ref and state for expanded folders
-  const updateExpandedFolders = (updater: (prev: Set<string>) => Set<string>) => {
-    const newExpandedPaths = updater(expandedFolderPathsRef.current);
-    expandedFolderPathsRef.current = newExpandedPaths;
-    setExpandedFolderPaths(new Set(newExpandedPaths)); // Create new Set to trigger re-render
-  };
 
-  // Fetch files for the project 
+  // Fetch files for the project with refresh key for complete reloads
   const { data: files = [], isLoading, refetch } = useQuery<FileNode[]>({
-    queryKey: ['project-files', projectId],
+    queryKey: ['project-files', projectId, refreshKey],
     queryFn: async () => {
       const response = await apiRequest('GET', `/api/projects/${projectId}/files`);
       // Map database fields to FileNode interface
@@ -124,10 +116,8 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       }));
     },
     enabled: !!projectId,
-    staleTime: Infinity, // Data is always fresh since we update via socket
-    gcTime: 5 * 60 * 1000, // Keep data in cache for 5 minutes for better UX
-    refetchOnWindowFocus: false, // Disable refetching on window focus
-    refetchOnReconnect: false, // Disable refetching on reconnect
+    staleTime: 0, // Always consider data stale for fresh fetches
+    gcTime: 0, // Don't cache results for true refresh behavior
   });
 
   // Hide loading indicator after first load or when files exist
@@ -136,16 +126,17 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       setShowLoadingIndicator(false);
     }
   }, [files, isLoading]);
-  
-  // Restore expanded state after data refresh
-  useEffect(() => {
-    if (files.length > 0) {
-      // Ensure the state is synced with the ref after data refresh
-      setExpandedFolderPaths(new Set(expandedFolderPathsRef.current));
-    }
-  }, [files]);
 
-  // File tree update receiver disabled - using direct socket updates instead
+  // Set up file tree update receiver
+  useEffect(() => {
+    if (onFileTreeUpdateReceiver) {
+      onFileTreeUpdateReceiver((data: any) => {
+        console.log('File tree update received:', data);
+        // Invalidate and refetch file tree when terminal changes files
+        queryClient.invalidateQueries({ queryKey: ['project-files', projectId] });
+      });
+    }
+  }, [onFileTreeUpdateReceiver, queryClient, projectId]);
 
   // Set up socket connection for manual refresh and real-time updates
   useEffect(() => {
@@ -153,68 +144,16 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
       socketRef.current = io();
     }
 
-    // Listen for file changes from terminal with new file data format
+    // Listen for file changes from terminal
     const handleFileChanges = (data: any) => {
       console.log('Files changed via socket:', data);
-      
-      // Handle new realtime watcher format with tree structure
-      if (data.projectId == projectId && data.tree) {
-        console.log('Updating file tree with new tree format');
+      if (data.projectId === projectId) {
         // Keep loading indicator hidden for socket updates too
         setShowLoadingIndicator(false);
-        
-        // Convert tree format to flat file list for compatibility
-        const flatFiles = convertTreeToFlatFiles(data.tree);
-        
-        // Update React Query cache directly with socket data to avoid API call
-        queryClient.setQueryData(['project-files', projectId], flatFiles);
-        
-        // Keep expanded folders state - no reset needed
+        // Force complete refresh immediately
+        setRefreshKey(prev => prev + 1);
+        setExpandedFolders(new Set([0])); // Reset to root expanded only
       }
-      // Handle legacy format with files array (for backward compatibility)
-      else if (data.projectId == projectId && data.files) {
-        console.log('Updating file tree with socket data:', data.files.length, 'files');
-        // Keep loading indicator hidden for socket updates too
-        setShowLoadingIndicator(false);
-        
-        // Update React Query cache directly with socket data to avoid API call
-        queryClient.setQueryData(['project-files', projectId], data.files);
-        
-        // Keep expanded folders state - no reset needed
-      }
-    };
-
-    // Helper function to convert tree structure to flat file list
-    const convertTreeToFlatFiles = (tree: any): FileNode[] => {
-      const flatFiles: FileNode[] = [];
-      let currentId = Date.now(); // Generate temporary IDs for new files
-      
-      const processNode = (node: any, parentPath: string = '') => {
-        const fullPath = parentPath + node.path;
-        
-        // Add current node to flat list
-        flatFiles.push({
-          id: currentId++,
-          name: node.name,
-          type: node.type,
-          path: fullPath,
-          content: '',
-          children: []
-        });
-        
-        // Process children recursively
-        if (node.children && node.children.length > 0) {
-          node.children.forEach((child: any) => {
-            processNode(child, fullPath);
-          });
-        }
-      };
-      
-      if (tree) {
-        processNode(tree);
-      }
-      
-      return flatFiles;
     };
 
     socketRef.current.on('files:changed', handleFileChanges);
@@ -229,8 +168,38 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     };
   }, [projectId, queryClient]);
 
-  // Auto-refresh disabled - using real-time socket updates instead
-  // This comment remains as placeholder to show we've removed the polling interval
+  // Set up automatic refresh every 2 seconds (paused during user operations)
+  useEffect(() => {
+    const startAutoRefresh = () => {
+      if (autoRefreshRef.current) {
+        clearInterval(autoRefreshRef.current);
+      }
+
+      autoRefreshRef.current = setInterval(() => {
+        // Don't refresh if user is actively creating files or in select mode
+        if (!isUserCreating && !selectMode && !creatingItem.show) {
+          console.log('Auto-refreshing file tree silently...');
+          // Keep loading indicator hidden during auto-refresh
+          setShowLoadingIndicator(false);
+          // Force complete refresh by incrementing refresh key
+          setRefreshKey(prev => prev + 1);
+          // Also clear expanded folders and selections to mimic browser refresh
+          setExpandedFolders(new Set([0])); // Reset to root expanded only
+          setSelectedFiles(new Set()); // Clear selections
+        }
+      }, 2000); // Refresh every 2 seconds
+    };
+
+    if (projectId) {
+      startAutoRefresh();
+    }
+
+    return () => {
+      if (autoRefreshRef.current) {
+        clearInterval(autoRefreshRef.current);
+      }
+    };
+  }, [projectId, isUserCreating, selectMode, creatingItem.show]);
 
   // Manual refresh function
   const handleManualRefresh = () => {
@@ -451,13 +420,13 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     return sortRecursively(tree);
   };
 
-  const handleToggleExpand = (nodePath: string) => {
-    updateExpandedFolders(prev => {
+  const handleToggleExpand = (nodeId: number) => {
+    setExpandedFolders(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(nodePath)) {
-        newSet.delete(nodePath);
+      if (newSet.has(nodeId)) {
+        newSet.delete(nodeId);
       } else {
-        newSet.add(nodePath);
+        newSet.add(nodeId);
       }
       return newSet;
     });
@@ -470,10 +439,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
     
     // Expand parent folder if needed
     if (parentId) {
-      const parentFile = files.find((f: FileNode) => f.id === parentId);
-      if (parentFile) {
-        updateExpandedFolders(prev => new Set(Array.from(prev).concat(parentFile.path)));
-      }
+      setExpandedFolders(prev => new Set(Array.from(prev).concat(parentId)));
     }
   };
 
@@ -501,7 +467,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
   };
 
   const renderNode = (node: FileNode, depth: number = 0): React.ReactNode => {
-    const isExpanded = expandedFolderPaths.has(node.path);
+    const isExpanded = expandedFolders.has(node.id);
     const hasChildren = node.children && node.children.length > 0;
     const isSelected = selectedFile?.id === node.id;
     const isFileSelected = selectedFiles.has(node.id);
@@ -520,7 +486,7 @@ export default function FileTree({ projectId, onFileSelect, selectedFile, onFile
                   handleSelectFile(node.id);
                 } else {
                   if (node.type === 'folder') {
-                    handleToggleExpand(node.path);
+                    handleToggleExpand(node.id);
                   } else {
                     onFileSelect(node);
                   }
